@@ -1,6 +1,6 @@
 # Cropfolk
 
-Kooperatívna 2D farmárska hra v Laraveli 13. Na farme sa pohybuješ cez WASD, šípky alebo dotykové tlačidlá. Kliknutím na záhon zasadíš alebo zožneš plodinu. Pozvánka pre kamarátov je dostupná priamo v hre.
+Kooperatívna 2D farmárska hra v Laraveli 13. Na farme sa pohybuješ cez WASD, šípky alebo dotykové tlačidlá. Pristúp k záhonu a na jeho obrábanie stlač E, klikni na záhon v dosahu alebo použi tlačidlo pod mapou. Najbližší záhon v dosahu sa zvýrazní. Zo spoločného dvora vedie chodník k bránkam oboch polí. Kamera sleduje avatara a stodola aj ploty bránia prechodu. Pozvánka pre kamarátov je dostupná priamo v hre.
 
 ## Lokálny vývoj
 

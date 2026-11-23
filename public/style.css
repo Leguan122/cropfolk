@@ -63,3 +63,25 @@ aside{background:var(--paper);border:1px solid #ddc79a;border-radius:20px;paddin
 .direction-pad{display:flex;gap:5px}
 .direction-pad button{touch-action:none;min-width:42px;min-height:42px;padding:0}
 .direction-pad button:active{background:var(--gold)}
+.plot.in-reach{outline:3px solid #fff0a9;outline-offset:1px}
+.plot:focus-visible{outline:3px solid #fff;outline-offset:3px}
+#work-plot{width:100%;margin-top:10px;background:var(--gold)}
+#work-plot:disabled{background:#e5dbc1;cursor:default;opacity:1}
+.field{aspect-ratio:auto;height:clamp(340px,60vw,585px);overflow:clip;background:#5e7945}
+.world{position:absolute;left:0;top:0;background:repeating-linear-gradient(110deg,#6f8c51 0 25px,#769356 25px 50px);isolation:isolate}
+#terrain,.plots,#avatars{position:absolute;inset:0;pointer-events:none}
+#avatars{overflow:visible;border-radius:0}
+.plots{display:block}
+.plot{position:absolute;transform:translate(-50%,-50%);width:76px;height:76px;margin:0;pointer-events:auto}
+.plot-icon{font-size:2rem}
+.terrain{position:absolute}
+.terrain.west,.terrain.east{background:repeating-linear-gradient(0deg,#7b7142 0 22px,#817747 22px 25px);border-radius:8px}
+.terrain.path,.terrain.yard{background:#be9e66;box-shadow:inset 0 0 16px #e1c488;border-radius:16px}
+.terrain.path{box-shadow:none;border-radius:6px}
+.terrain span{position:absolute;left:50%;top:10px;transform:translateX(-50%);color:#fff9e8;white-space:nowrap;font:700 .9rem Georgia,serif;padding:4px 10px;border-radius:6px;background:#35482c}
+.terrain.yard span{top:auto;bottom:9px}
+.terrain.fence{background:repeating-linear-gradient(90deg,#5c3924 0 6px,#ac7648 6px 25px,#cb9660 25px 28px);border:2px solid #5c3924;border-radius:4px;box-shadow:0 3px #35482c77}
+.terrain.fence.vertical{background:repeating-linear-gradient(0deg,#5c3924 0 6px,#ac7648 6px 25px,#cb9660 25px 28px)}
+.terrain.barn{border:4px solid #6d3326;border-radius:10px;background:repeating-linear-gradient(90deg,#9d4b36 0 17px,#ac583e 17px 20px);box-shadow:0 7px #6d332677,inset 0 7px #bd7153}
+.terrain.barn::before{content:'';position:absolute;left:22%;right:22%;bottom:0;height:53%;border:4px solid #e3c69d;border-bottom:0;border-radius:18px 18px 0 0;background:linear-gradient(90deg,#75442f 0 48%,#e3c69d 48% 52%,#75442f 52%)}
+.terrain.barn span{background:#6d3326;top:17px}

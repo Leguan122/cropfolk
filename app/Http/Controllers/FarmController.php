@@ -30,7 +30,7 @@ final class FarmController extends Controller
                     if ($code === '') {
                         $code = strtoupper(bin2hex(random_bytes(6)));
                         $coins = 24;
-                        $plots = array_fill(0, 16, null);
+                        $plots = array_fill(0, count(config('farm.plots')), null);
                         DB::table('farms')->insert([
                             'code' => $code, 'coins' => $coins, 'plots' => json_encode($plots, JSON_THROW_ON_ERROR),
                         ]);
@@ -50,6 +50,7 @@ final class FarmController extends Controller
                 ]);
             return response()->json([
                 'code' => $code, 'coins' => $coins, 'plots' => $plots, 'time' => $now, 'players' => $players,
+                'layout' => config('farm'),
             ])->header('Cache-Control', 'no-store');
         } catch (HttpException $error) {
             return response()->json(['error' => $error->getMessage()], $error->getStatusCode());
@@ -77,6 +78,8 @@ final class FarmController extends Controller
         if (!is_int($index) || !array_key_exists($index, $plots)) {
             throw new HttpException(400, 'Neplatný záhon.');
         }
+        $this->checkReach($code, $this->playerId($body), $index);
+
         $plant = $plots[$index];
         $action = $body['action'] ?? null;
         if ($action === 'plant') {
@@ -110,11 +113,30 @@ final class FarmController extends Controller
         return [$coins, $plots];
     }
 
-    private function updatePosition(string $code, array $body): void {
+    private function playerId(array $body): string
+    {
         $id = $body['id'] ?? null;
         if (!is_string($id) || !preg_match('/^[0-9a-f]{32}$/D', $id)) {
             throw new HttpException(400, 'Neplatný hráč.');
         }
+        return $id;
+    }
+
+    private function checkReach(string $code, string $id, int $plot): void
+    {
+        $player = DB::table('players')->where('farm', $code)->where('id', $id)
+            ->where('seen', '>=', $this->timestamp() - self::PRESENCE_TTL)->first(['x', 'y']);
+        $map = config('farm');
+        $target = $map['plots'][$plot];
+
+        if (!$player || hypot($player->x * $map['width'] - $target['x'],
+                              $player->y * $map['height'] - $target['y']) > $map['reach']) {
+            throw new HttpException(409, 'Najprv pristúp bližšie k záhonu.');
+        }
+    }
+
+    private function updatePosition(string $code, array $body): void {
+        $id = $this->playerId($body);
         $coordinates = [];
         foreach (['x', 'y'] as $axis) {
             $value = $body[$axis] ?? null;
@@ -123,6 +145,21 @@ final class FarmController extends Controller
             }
             $coordinates[] = $value;
         }
+        $map = config('farm');
+        $x = $coordinates[0] * $map['width'];
+        $y = $coordinates[1] * $map['height'];
+        $radius = $map['radius'];
+        if ($x < $radius || $x > $map['width'] - $radius ||
+            $y < $radius || $y > $map['height'] - $radius) {
+            throw new HttpException(409, 'Táto poloha je mimo mapy.');
+        }
+        foreach ($map['obstacles'] as $wall) {
+            if ($x > $wall['x'] - $radius && $x < $wall['x'] + $wall['w'] + $radius &&
+                $y > $wall['y'] - $radius && $y < $wall['y'] + $wall['h'] + $radius) {
+                throw new HttpException(409, 'Na tomto mieste je prekážka.');
+            }
+        }
+
         $now = $this->timestamp();
         DB::table('players')->where('farm', $code)->where('seen', '<', $now - self::PRESENCE_TTL)->delete();
         DB::table('players')->upsert([

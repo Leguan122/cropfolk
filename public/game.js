@@ -7,13 +7,17 @@ const $ = id => document.getElementById(id);
 let farm = null;
 let selected = 'radish';
 let busy = false;
-let polling = false;
+let polling = null;
 let generation = 0;
 let serverClock = 0;
 let clockReceived = 0;
 const playerId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
   byte => byte.toString(16).padStart(2, '0')).join('');
 const avatarLayer = $('avatars');
+const field = $('field');
+const world = $('world');
+const workButton = $('work-plot');
+let nearestPlot = -1;
 const peers = new Map();
 const keys = new Set();
 const touchKeys = new Map();
@@ -63,8 +67,41 @@ function drawAvatar(element, point, width, height) {
   element.style.transform = 'translate(' + point.x * width + 'px,' + point.y * height + 'px)';
 }
 
-function keepInside(value, margin) {
-  return Math.min(1 - margin, Math.max(margin, value));
+function walkable(x, y, map) {
+  const {width, height, radius, obstacles} = map;
+  if (x < radius || x > width - radius || y < radius || y > height - radius) return false;
+  return !obstacles.some(wall =>
+    x > wall.x - radius && x < wall.x + wall.w + radius &&
+    y > wall.y - radius && y < wall.y + wall.h + radius);
+}
+
+function cameraOffset(position, viewport, worldSize) {
+  return viewport >= worldSize ? (viewport - worldSize) / 2
+    : -Math.max(0, Math.min(worldSize - viewport, position - viewport / 2));
+}
+
+function renderMap(map) {
+  world.style.width = map.width + 'px';
+  world.style.height = map.height + 'px';
+  $('terrain').replaceChildren();
+  for (const item of [...map.landmarks, ...map.obstacles]) {
+    const tile = document.createElement('div');
+    tile.className = 'terrain ' + item.kind + (item.h > item.w ? ' vertical' : '');
+    Object.assign(tile.style, {
+      left: item.x + 'px', top: item.y + 'px', width: item.w + 'px', height: item.h + 'px',
+    });
+    if (item.text) {
+      const label = document.createElement('span');
+      label.textContent = item.text;
+      tile.append(label);
+    }
+    $('terrain').append(tile);
+  }
+  map.plots.forEach(({x, y}, index) => {
+    const plot = $('plots').children[index];
+    plot.style.left = x + 'px';
+    plot.style.top = y + 'px';
+  });
 }
 
 function animate(frame) {
@@ -74,13 +111,23 @@ function animate(frame) {
     const pressed = new Set([...Array.from(keys, key => directions[key]), ...touchKeys.values()]);
     const dx = Number(pressed.has('KeyD')) - Number(pressed.has('KeyA'));
     const dy = Number(pressed.has('KeyS')) - Number(pressed.has('KeyW'));
-    const width = avatarLayer.clientWidth;
-    const height = avatarLayer.clientHeight;
+    const {width, height} = farm.layout;
     if (width && height) {
-      const distance = 185 * elapsed / (Math.hypot(dx, dy) || 1);
-      position.x = keepInside(position.x + dx * distance / width, 20 / width);
-      position.y = Math.min(1 - 22 / height, Math.max(39 / height, position.y + dy * distance / height));
+      const distance = 235 * elapsed / (Math.hypot(dx, dy) || 1);
+      let x = position.x * width;
+      const y = position.y * height;
+      if (dx && walkable(x + dx * distance, y, farm.layout)) {
+        x += dx * distance;
+        position.x = x / width;
+      }
+      if (dy && walkable(x, y + dy * distance, farm.layout)) {
+        position.y = (y + dy * distance) / height;
+      }
+      const left = cameraOffset(x, field.clientWidth, width);
+      const top = cameraOffset(position.y * height, field.clientHeight, height);
+      world.style.transform = 'translate(' + left + 'px,' + top + 'px)';
       drawAvatar(ownAvatar, position, width, height);
+      updateTarget();
       const blend = 1 - Math.exp(-elapsed * 16);
       for (const peer of peers.values()) {
         peer.x += (peer.target.x - peer.x) * blend;
@@ -94,10 +141,15 @@ function animate(frame) {
 requestAnimationFrame(animate);
 
 window.addEventListener('keydown', event => {
-  if (!farm || !directions[event.code] || event.ctrlKey || event.metaKey || event.altKey ||
+  if (!farm || event.ctrlKey || event.metaKey || event.altKey ||
       event.target.closest('input,textarea,[contenteditable]')) return;
-  event.preventDefault();
-  keys.add(event.code);
+  if (event.code === 'KeyE') {
+    event.preventDefault();
+    if (!event.repeat) workPlot(nearestPlot);
+  } else if (directions[event.code]) {
+    event.preventDefault();
+    keys.add(event.code);
+  }
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => {
@@ -143,7 +195,11 @@ function record(data) {
 
 function open(data) {
   generation++;
-  position = {x: 0.12 + Math.random() * 0.76, y: 0.9};
+  nearestPlot = -1;
+  $('plots').querySelector('.in-reach')?.classList.remove('in-reach');
+  const {width, height, spawn} = data.layout;
+  position = {x: (spawn.x + Math.random() * 60 - 30) / width, y: spawn.y / height};
+  renderMap(data.layout);
   sentPosition = null;
   $('lobby').hidden = true;
   $('game').hidden = false;
@@ -158,6 +214,69 @@ function open(data) {
 function remaining(plant) {
   return Math.max(0, Math.ceil((plant.ready - serverClock - (performance.now() - clockReceived)) / 1000));
 }
+
+function plotDistance(index, point = position) {
+  const {width, height, plots} = farm.layout;
+  const plot = plots[index];
+  return Math.hypot(point.x * width - plot.x, point.y * height - plot.y);
+}
+
+function updateTarget() {
+  let target = -1;
+  let closest = farm.layout.reach;
+  for (let index = 0; index < farm.plots.length; index++) {
+    const distance = plotDistance(index);
+    if (distance <= closest) {
+      target = index;
+      closest = distance;
+    }
+  }
+  if (target !== nearestPlot) {
+    $('plots').children[nearestPlot]?.classList.remove('in-reach');
+    $('plots').children[target]?.classList.add('in-reach');
+    nearestPlot = target;
+  }
+
+  const plant = farm.plots[target];
+  const growing = Boolean(plant && remaining(plant));
+  const label = target < 0 ? 'Pristúp k záhonu' : growing
+    ? crops[plant.crop].name + ' dozrieva'
+    : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
+  if (workButton.textContent !== label) workButton.textContent = label;
+  workButton.disabled = target < 0 || growing || busy;
+}
+
+function workPlot(index) {
+  return run(async () => {
+    const point = {...position};
+    if (index < 0 || plotDistance(index, point) > farm.layout.reach) {
+      message('Najprv pristúp bližšie k záhonu.');
+      return;
+    }
+    const plant = farm.plots[index];
+    if (plant && remaining(plant)) {
+      message('Úroda ešte dozrieva.');
+      return;
+    }
+    const code = farm.code;
+    const crop = selected;
+    const current = ++generation;
+    await polling;
+    if (generation !== current) return;
+    await api(code, {action: 'position', id: playerId, ...point});
+    if (generation !== current) return;
+    sentPosition = point;
+    sentAt = performance.now();
+
+    const data = await api(code, {
+      id: playerId, plot: index, crop, planted: plant?.planted,
+      action: plant ? 'harvest' : 'plant',
+    });
+    if (generation === current) record(data);
+  });
+}
+
+workButton.onclick = () => workPlot(nearestPlot);
 
 function render() {
   if (!farm) return;
@@ -211,18 +330,7 @@ for (let index = 0; index < 16; index++) {
   button.type = 'button';
   button.className = 'plot';
   button.innerHTML = '<span class="plot-icon" aria-hidden="true"></span><small aria-hidden="true"></small>';
-  button.onclick = () => run(async () => {
-    const plant = farm.plots[index];
-    if (plant && remaining(plant)) {
-      message('Úroda ešte dozrieva.');
-      return;
-    }
-    const current = ++generation;
-    const data = await api(farm.code, {
-      plot: index, crop: selected, planted: plant?.planted, action: plant ? 'harvest' : 'plant',
-    });
-    if (generation === current) record(data);
-  });
+  button.onclick = () => workPlot(index);
   $('plots').append(button);
 }
 $('create').onclick = () => run(async () => open(await api('', {})));
@@ -261,9 +369,7 @@ $('leave').onclick = () => {
   message();
   $('room').focus();
 };
-setInterval(async () => {
-  if (!farm || busy || polling) return;
-  polling = true;
+async function poll() {
   const current = generation;
   try {
     const next = {...position};
@@ -279,9 +385,12 @@ setInterval(async () => {
     }
   } catch {
     if (generation === current) $('connection').textContent = 'Obnovujem spojenie…';
-  } finally {
-    polling = false;
   }
+}
+
+setInterval(() => {
+  if (!farm || busy || polling) return;
+  polling = poll().finally(() => { polling = null; });
 }, 200);
 setInterval(render, 300);
 

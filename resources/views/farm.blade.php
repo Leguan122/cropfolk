@@ -27,14 +27,20 @@
   </section>
   <section id="game" hidden>
     <div class="farm-heading">
-      <div><h1>Naša farma</h1><p>Vyber plodinu a klikni na voľný záhon.</p></div>
+      <div><h1>Naša farma</h1><p>Vyber plodinu a pristúp k záhonu.</p></div>
       <div class="coins" id="coins" aria-label="Mince"></div>
     </div>
     <div class="farm-layout">
       <div>
-        <div class="field" id="field"><div id="plots" class="plots" aria-label="Záhony"></div><div id="avatars" aria-hidden="true"></div></div>
+        <div class="field" id="field">
+          <div id="world" class="world">
+            <div id="terrain" aria-hidden="true"></div>
+            <div id="plots" class="plots" aria-label="Záhony"></div>
+            <div id="avatars" aria-hidden="true"></div>
+          </div>
+        </div>
         <div class="movement">
-          <p><strong>WASD</strong> alebo šípky na pohyb</p>
+          <p><strong>WASD</strong> alebo šípky na pohyb · <strong>E</strong> na obrábanie</p>
           <div class="direction-pad" aria-label="Ovládanie pohybu">
             <button type="button" data-key="KeyW" aria-label="Hore">▲</button>
             <button type="button" data-key="KeyA" aria-label="Vľavo">◀</button>
@@ -42,6 +48,7 @@
             <button type="button" data-key="KeyD" aria-label="Vpravo">▶</button>
           </div>
         </div>
+        <button type="button" id="work-plot" disabled>Pristúp k záhonu</button>
       </div>
       <aside>
         <h2>Semienka</h2>
