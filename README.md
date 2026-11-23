@@ -1,23 +1,24 @@
 # Cropfolk
 
-Kooperatívna 2D farmárska klikačka. Avatarom sa po farme pohybuješ cez **WASD**, šípky alebo smerové tlačidlá pod záhonmi. Na sadenie a zber klikni na záhon. Hráči s rovnakým odkazom alebo kódom vidia navzájom svoje avatary a zdieľajú 16 záhonov, tri druhy plodín a mince.
+Kooperatívna 2D farmárska hra v Laraveli 13. Na farme sa pohybuješ cez WASD, šípky alebo dotykové tlačidlá. Kliknutím na záhon zasadíš alebo zožneš plodinu. Pozvánka pre kamarátov je dostupná priamo v hre.
 
-## Lokálne spustenie
+## Lokálny vývoj
 
-Potrebuješ PHP 8.1+ s rozšírením `pdo_sqlite`. V priečinku `farma-php` spusti:
+Potrebuješ PHP 8.4.1+, Composer a rozšírenie `pdo_mysql` a MySQL 8.4. Z koreňa projektu spusti:
 
 ```sh
-php -S 127.0.0.1:8001 -t public
+composer install --no-dev
+cp .env.example .env
+php artisan key:generate
+# V .env nastav prístup k MySQL a podľa potreby cestu k CA certifikátu.
+php artisan migrate
+php artisan serve --host=127.0.0.1 --port=8002
 ```
 
-Otvor [http://127.0.0.1:8001](http://127.0.0.1:8001). Port 8001 umožňuje nechať pôvodný Python server na porte 8000. Databáza vznikne pri prvej požiadavke v `data/farm.sqlite3`.
+Otvor [http://127.0.0.1:8002](http://127.0.0.1:8002). Pozvánku otvor aj v druhom okne prehliadača, ak chceš skúsiť multiplayer na jednom počítači. JavaScript a CSS sa podávajú priamo z `public/`.
 
-## Hosting
+## Nasadenie
 
-Nastav webový koreň na `public/` a povoľ spúšťanie PHP pre `api.php`. Databázu drž mimo webového koreňa v trvalom zapisovateľnom priečinku. Vlastnú cestu môžeš nastaviť premennou `FARM_DB`. Na verejnej doméne použi HTTPS. Produkcia môže používať PHP-FPM alebo bežný PHP hosting bez WebSocket servera. Vstavaný server PHP slúži na lokálne testovanie.
+Webový koreň nastav na `public/`. Vytvor produkčný `.env`, vygeneruj `APP_KEY`, vypni `APP_DEBUG` a nastav databázu. V `.env` nastav `DB_CONNECTION=mysql` a údaje databázy. Pri vzdialenom pripojení nastav aj `MYSQL_ATTR_SSL_CA` na cestu k dôveryhodnému CA certifikátu. Produkčné migrácie spusti cez `php artisan migrate --force`.
 
-## Prenos pôvodnej farmy
-
-Zastav Python server a skopíruj jeho `farm.sqlite3` do `data/farm.sqlite3` v PHP projekte ešte pred prvým spustením. Ak databázu kopíruješ počas behu, použi SQLite `.backup`. PHP verzia používa tú istú tabuľku fariem a doplní tabuľku hráčov. Pôvodné kódy, mince, záhony aj časy dozrievania zostanú zachované. Pozvánky potom zdieľaj z novej adresy.
-
-Polohy sa medzi prehliadačmi synchronizujú približne päťkrát za sekundu. Avatar hráča, ktorý prestal komunikovať, zmizne do približne desiatich sekúnd.
+Laravel verzia používa MySQL. Ak chceš preniesť staré farmy, skopíruj z pôvodnej databázy riadky tabuľky `farms` (stĺpce `code`, `coins`, `plots`) do novej databázy po migrácii. Poloha avatara je dočasná a neprenáša sa.

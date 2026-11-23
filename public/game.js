@@ -115,9 +115,10 @@ for (const button of document.querySelectorAll('[data-key]')) {
 }
 
 async function api(code = '', payload) {
-  const response = await fetch('api.php' + (code ? '?farm=' + code : ''), {
+  const response = await fetch('/api/farms' + (code ? '/' + code : ''), {
+    headers: {Accept: 'application/json', ...(payload && {'Content-Type': 'application/json'})},
     ...(payload && {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
     signal: AbortSignal.timeout(6000),
