@@ -11,13 +11,34 @@ let polling = null;
 let generation = 0;
 let serverClock = 0;
 let clockReceived = 0;
-const playerId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
-  byte => byte.toString(16).padStart(2, '0')).join('');
+function getPlayerId() {
+  const key = 'cropfolk-player';
+  const fresh = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    byte => byte.toString(16).padStart(2, '0')).join('');
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (/^[0-9a-f]{32}$/.test(saved ?? '')) return saved;
+    sessionStorage.setItem(key, fresh);
+  } catch {
+    // The player can still use an inventory for this page when storage is unavailable.
+  }
+  return fresh;
+}
+
+const playerId = getPlayerId();
 const avatarLayer = $('avatars');
 const field = $('field');
 const world = $('world');
+const panel = $('farm-panel');
+const seedToggle = $('seed-toggle');
+const panelToggle = $('panel-toggle');
+let panelOpener = null;
+const sellButton = $('sell-stock');
+const wheelbarrowButton = $('buy-wheelbarrow');
+const shopButtons = [];
 const workButton = $('work-plot');
 let nearestPlot = -1;
+let inventoryView = null;
 const peers = new Map();
 const keys = new Set();
 const touchKeys = new Map();
@@ -45,7 +66,7 @@ const ownAvatar = makeAvatar('Ty', true);
 function syncPeers(players) {
   const active = new Set();
   for (const player of players) {
-    if (player.id === playerId) continue;
+    if (player.self) continue;
     active.add(player.id);
     const peer = peers.get(player.id);
     if (peer) {
@@ -97,6 +118,17 @@ function renderMap(map) {
     }
     $('terrain').append(tile);
   }
+  for (const [id, place, label] of [
+    ['barn', map.barnDoor, 'Vchod do stodoly'],
+    ['shop', map.shopDoor, 'Vchod do obchodu'],
+  ]) {
+    const door = document.createElement('div');
+    door.className = 'barn-door ' + id + '-entrance';
+    door.style.left = place.x + 'px';
+    door.style.top = place.y + 'px';
+    door.textContent = label;
+    $('terrain').append(door);
+  }
   map.plots.forEach(({x, y}, index) => {
     const plot = $('plots').children[index];
     plot.style.left = x + 'px';
@@ -140,12 +172,40 @@ function animate(frame) {
 }
 requestAnimationFrame(animate);
 
+function closePanel(restoreFocus = true) {
+  panel.hidden = true;
+  panelToggle.setAttribute('aria-expanded', 'false');
+  seedToggle.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) panelOpener?.focus();
+  panelOpener = null;
+}
+
+function openPanel(opener, focusTarget) {
+  if (!panel.hidden && panelOpener === opener) {
+    closePanel();
+    return;
+  }
+  panelOpener = opener;
+  panel.hidden = false;
+  panelToggle.setAttribute('aria-expanded', 'true');
+  seedToggle.setAttribute('aria-expanded', 'true');
+  focusTarget.focus();
+}
+
+seedToggle.onclick = () => openPanel(seedToggle, $('seed-heading'));
+panelToggle.onclick = () => openPanel(panelToggle, $('panel-close'));
+$('panel-close').onclick = () => closePanel();
+
 window.addEventListener('keydown', event => {
+  if (event.code === 'Escape' && !panel.hidden) {
+    closePanel();
+    return;
+  }
   if (!farm || event.ctrlKey || event.metaKey || event.altKey ||
       event.target.closest('input,textarea,[contenteditable]')) return;
   if (event.code === 'KeyE') {
     event.preventDefault();
-    if (!event.repeat) workPlot(nearestPlot);
+    if (!event.repeat) interact();
   } else if (directions[event.code]) {
     event.preventDefault();
     keys.add(event.code);
@@ -168,7 +228,7 @@ for (const button of document.querySelectorAll('[data-key]')) {
 
 async function api(code = '', payload) {
   const response = await fetch('/api/farms' + (code ? '/' + code : ''), {
-    headers: {Accept: 'application/json', ...(payload && {'Content-Type': 'application/json'})},
+    headers: {Accept: 'application/json', 'X-Cropfolk-Player': playerId, ...(payload && {'Content-Type': 'application/json'})},
     ...(payload && {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -181,7 +241,9 @@ async function api(code = '', payload) {
 }
 
 function message(value = '') {
-  $('message').textContent = value;
+  const inGame = !$('game').hidden;
+  $('message').textContent = inGame ? '' : value;
+  $('game-message').textContent = inGame ? value : '';
 }
 
 function record(data) {
@@ -203,29 +265,59 @@ function open(data) {
   sentPosition = null;
   $('lobby').hidden = true;
   $('game').hidden = false;
+  document.body.classList.add('playing');
+  closePanel(false);
   $('code').textContent = data.code;
   $('invite-link').hidden = true;
   history.replaceState(null, '', '?farma=' + data.code);
   record(data);
-  $('game').querySelector('h1').setAttribute('tabindex', '-1');
-  $('game').querySelector('h1').focus();
+  $('game-title').focus();
 }
 
 function remaining(plant) {
   return Math.max(0, Math.ceil((plant.ready - serverClock - (performance.now() - clockReceived)) / 1000));
 }
 
-function plotDistance(index, point = position) {
-  const {width, height, plots} = farm.layout;
-  const plot = plots[index];
-  return Math.hypot(point.x * width - plot.x, point.y * height - plot.y);
+function mapDistance(target, point = position) {
+  const {width, height} = farm.layout;
+  return Math.hypot(point.x * width - target.x, point.y * height - target.y);
+}
+
+function total(contents) {
+  return Object.values(contents).reduce((sum, count) => sum + count, 0);
+}
+
+function atBarn() {
+  const {barnDoor} = farm.layout;
+  return mapDistance(barnDoor) <= barnDoor.reach;
+}
+
+function atShop() {
+  const {shopDoor} = farm.layout;
+  return mapDistance(shopDoor) <= shopDoor.reach;
+}
+
+function interact() {
+  if (atShop()) {
+    if (panel.hidden || panelOpener !== workButton) {
+      openPanel(workButton, $('shop-heading'));
+    } else {
+      $('shop-heading').focus();
+    }
+  } else if (atBarn()) {
+    if (total(farm.bag)) workBarn('deposit');
+    else if (total(farm.barn)) workBarn('sell');
+    else message('Stodola je prázdna.');
+  } else {
+    workPlot(nearestPlot);
+  }
 }
 
 function updateTarget() {
   let target = -1;
   let closest = farm.layout.reach;
   for (let index = 0; index < farm.plots.length; index++) {
-    const distance = plotDistance(index);
+    const distance = mapDistance(farm.layout.plots[index]);
     if (distance <= closest) {
       target = index;
       closest = distance;
@@ -239,17 +331,54 @@ function updateTarget() {
 
   const plant = farm.plots[target];
   const growing = Boolean(plant && remaining(plant));
-  const label = target < 0 ? 'Pristúp k záhonu' : growing
-    ? crops[plant.crop].name + ' dozrieva'
-    : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
+  const nearBarn = atBarn();
+  const nearShop = atShop();
+  const noSeeds = !plant && !farm.seeds[selected];
+  const hasBag = total(farm.bag) > 0;
+  const hasStock = total(farm.barn) > 0;
+  const value = Object.entries(farm.barn).reduce((sum, [id, count]) => sum + crops[id].reward * count, 0);
+  const label = nearShop ? 'E · Otvoriť obchod' : nearBarn
+    ? (hasBag ? 'E · Uložiť úrodu' : hasStock ? 'E · Predať úrodu za ' + value + ' 🪙' : 'Stodola je prázdna')
+    : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : growing
+      ? crops[plant.crop].name + ' dozrieva'
+      : noSeeds ? 'Semienka kúpiš v obchode' : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
   if (workButton.textContent !== label) workButton.textContent = label;
-  workButton.disabled = target < 0 || growing || busy;
+  workButton.disabled = busy || (!nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
+  sellButton.disabled = busy || !nearBarn || !hasStock;
+  const sellLabel = hasStock ? 'Predať za ' + value + ' 🪙' : 'Predať úrodu';
+  if (sellButton.textContent !== sellLabel) sellButton.textContent = sellLabel;
+  const wheelbarrowLabel = farm.wheelbarrow ? 'Fúrik zakúpený'
+    : 'Kúpiť fúrik za ' + farm.layout.wheelbarrow.cost + ' 🪙';
+  if (wheelbarrowButton.textContent !== wheelbarrowLabel) wheelbarrowButton.textContent = wheelbarrowLabel;
+  wheelbarrowButton.disabled = busy || !nearBarn || farm.wheelbarrow || farm.coins < farm.layout.wheelbarrow.cost;
+  const hint = nearShop ? 'Vyber plodinu a množstvo.' : 'Pristúp k vchodu do obchodu.';
+  if ($('shop-hint').textContent !== hint) $('shop-hint').textContent = hint;
+  for (const {button, cost} of shopButtons) {
+    button.disabled = busy || !nearShop || farm.coins < cost;
+  }
+  $('terrain').querySelector('.barn-entrance').classList.toggle('in-reach', nearBarn);
+  $('terrain').querySelector('.shop-entrance').classList.toggle('in-reach', nearShop);
+}
+
+async function actAtPosition(payload) {
+  const point = {...position};
+  const code = farm.code;
+  const current = ++generation;
+  await polling;
+  if (generation !== current) return;
+  await api(code, {action: 'position', ...point});
+  if (generation !== current) return;
+  sentPosition = point;
+  sentAt = performance.now();
+  const data = await api(code, payload);
+  if (generation !== current) return;
+  record(data);
+  return data;
 }
 
 function workPlot(index) {
   return run(async () => {
-    const point = {...position};
-    if (index < 0 || plotDistance(index, point) > farm.layout.reach) {
+    if (index < 0 || mapDistance(farm.layout.plots[index]) > farm.layout.reach) {
       message('Najprv pristúp bližšie k záhonu.');
       return;
     }
@@ -258,35 +387,117 @@ function workPlot(index) {
       message('Úroda ešte dozrieva.');
       return;
     }
-    const code = farm.code;
-    const crop = selected;
-    const current = ++generation;
-    await polling;
-    if (generation !== current) return;
-    await api(code, {action: 'position', id: playerId, ...point});
-    if (generation !== current) return;
-    sentPosition = point;
-    sentAt = performance.now();
-
-    const data = await api(code, {
-      id: playerId, plot: index, crop, planted: plant?.planted,
+    if (!plant && !farm.seeds[selected]) {
+      message('Toto semienko najprv kúp v obchode.');
+      return;
+    }
+    const data = await actAtPosition({
+      plot: index, crop: selected, planted: plant?.planted,
       action: plant ? 'harvest' : 'plant',
     });
-    if (generation === current) record(data);
+    if (data && plant) message('Úroda je v inventári. Odnes ju do stodoly.');
   });
 }
 
-workButton.onclick = () => workPlot(nearestPlot);
+function workBarn(action) {
+  return run(async () => {
+    if (!atBarn()) {
+      message('Najprv pristúp k dverám stodoly.');
+      return;
+    }
+    const data = await actAtPosition({action});
+    if (data) {
+      const notices = {
+        deposit: 'Úroda je v spoločnej stodole.',
+        sell: 'Úroda je predaná. Mince pribudli do pokladnice.',
+        'buy-wheelbarrow': 'Fúrik je váš. Každý hráč teraz unesie 12 kusov úrody.',
+      };
+      message(notices[action]);
+    }
+  });
+}
+
+workButton.onclick = interact;
+sellButton.onclick = () => workBarn('sell');
+wheelbarrowButton.onclick = () => workBarn('buy-wheelbarrow');
+
+function buySeed(crop, quantity) {
+  return run(async () => {
+    if (!atShop()) {
+      message('Najprv pristúp k obchodu.');
+      return;
+    }
+    if (await actAtPosition({action: 'buy-seed', crop, quantity})) {
+      message('Semienka sú v zásobe.');
+    }
+  });
+}
+
+function cargoItem(id, quantity = null) {
+  const item = document.createElement('li');
+  const crop = crops[id];
+  const icon = document.createElement('span');
+  icon.className = 'cargo-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = crop?.icon ?? '';
+  item.append(icon);
+
+  const label = document.createElement('span');
+  if (quantity === null) {
+    label.className = 'visually-hidden';
+    label.textContent = crop?.name ?? 'Voľná priehradka';
+    if (crop) item.title = crop.name;
+  } else {
+    label.className = 'stock-label';
+    label.textContent = crop.name;
+    const count = document.createElement('strong');
+    count.textContent = String(quantity);
+    item.append(label, count);
+    return item;
+  }
+  item.append(label);
+  return item;
+}
+
+function renderInventory() {
+  const capacity = farm.layout.bagCapacity;
+  const bag = Object.keys(crops).flatMap(id => Array(farm.bag[id] ?? 0).fill(id));
+  const stock = Object.keys(crops).filter(id => farm.barn[id]);
+  const signature = JSON.stringify([capacity, bag, stock.map(id => [id, farm.barn[id]])]);
+  if (inventoryView === signature) return;
+  inventoryView = signature;
+
+  $('bag-count').textContent = bag.length + ' / ' + capacity;
+  $('hud-bag-count').textContent = bag.length + '/' + capacity;
+  $('bag-items').replaceChildren(...Array.from({length: capacity}, (_, index) => {
+    const item = cargoItem(bag[index]);
+    item.classList.toggle('filled', Boolean(bag[index]));
+    return item;
+  }));
+  const empty = document.createElement('li');
+  empty.className = 'stock-empty';
+  empty.textContent = 'Stodola je prázdna.';
+  $('stock-items').replaceChildren(...(stock.length ? stock.map(id => cargoItem(id, farm.barn[id])) : [empty]));
+}
 
 function render() {
   if (!farm) return;
   $('coins').textContent = '🪙 ' + farm.coins;
+  const seed = crops[selected];
+  $('selected-seed').textContent = seed.icon + ' ' + seed.name + ' × ' + (farm.seeds[selected] ?? 0);
+  for (const [id, crop] of Object.entries(crops)) {
+    const summary = $('seed-count-' + id);
+    const label = 'V zásobe ' + (farm.seeds[id] ?? 0) + ' · ' + crop.seconds + ' s';
+    if (summary.textContent !== label) summary.textContent = label;
+  }
+  renderInventory();
   farm.plots.forEach((plant, index) => {
     const button = $('plots').children[index];
     const seconds = plant ? remaining(plant) : 0;
     const crop = plant ? crops[plant.crop] : crops[selected];
     button.classList.toggle('ready', Boolean(plant && !seconds));
-    button.firstElementChild.textContent = plant ? (seconds ? '🌱' : crop.icon) : '＋';
+    button.classList.toggle('planted', Boolean(plant));
+    button.firstElementChild.textContent = plant ? (seconds ? '🌱' : crop.icon) : '';
     button.lastElementChild.textContent = plant ? (seconds ? seconds + ' s' : 'Zožať') : 'Zasadiť';
     const label = plant ? crop.name + (seconds ? ', dozrieva' : ', zožať') : 'zasadiť ' + crop.name;
     button.setAttribute('aria-label', 'Záhon ' + (index + 1) + ', ' + label);
@@ -316,14 +527,33 @@ for (const [id, crop] of Object.entries(crops)) {
   button.className = 'seed';
   button.setAttribute('aria-pressed', id === selected);
   button.innerHTML = '<span class="seed-icon" aria-hidden="true">' + crop.icon + '</span><span>' +
-    crop.name + '<small>🪙 ' + crop.cost + ' · predaj ' + crop.reward + ' · ' + crop.seconds + ' s</small></span>';
+    crop.name + '<small id="seed-count-' + id + '"></small></span>';
   button.onclick = () => {
     selected = id;
     for (const seed of $('seeds').children) seed.setAttribute('aria-pressed', seed === button);
     message();
     render();
+    closePanel();
   };
   $('seeds').append(button);
+
+  const listing = document.createElement('div');
+  listing.className = 'shop-listing';
+  const name = document.createElement('strong');
+  name.textContent = crop.icon + ' ' + crop.name;
+  listing.append(name);
+  for (const quantity of [1, 5]) {
+    const cost = crop.cost * quantity;
+    const buy = document.createElement('button');
+    buy.type = 'button';
+    buy.disabled = true;
+    buy.textContent = quantity + ' ks · ' + cost + ' 🪙';
+    buy.setAttribute('aria-label', 'Kúpiť ' + quantity + ' ks: ' + crop.name + ' za ' + cost + ' mincí');
+    buy.onclick = () => buySeed(id, quantity);
+    listing.append(buy);
+    shopButtons.push({button: buy, cost});
+  }
+  $('shop-items').append(listing);
 }
 for (let index = 0; index < 16; index++) {
   const button = document.createElement('button');
@@ -364,6 +594,8 @@ $('leave').onclick = () => {
   syncPeers([]);
   $('connection').textContent = '';
   $('game').hidden = true;
+  document.body.classList.remove('playing');
+  closePanel(false);
   $('lobby').hidden = false;
   history.replaceState(null, '', location.pathname);
   message();
@@ -375,7 +607,7 @@ async function poll() {
     const next = {...position};
     const send = !sentPosition || sentPosition.x !== next.x || sentPosition.y !== next.y ||
       performance.now() - sentAt > 2000;
-    const data = await api(farm.code, send ? {action: 'position', id: playerId, ...next} : undefined);
+    const data = await api(farm.code, send ? {action: 'position', ...next} : undefined);
     if (generation === current) {
       if (send) {
         sentAt = performance.now();
