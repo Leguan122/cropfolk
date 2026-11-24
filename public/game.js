@@ -2,6 +2,9 @@ const crops = {
   radish: {name: 'Reďkovka', icon: '🌱', cost: 2, reward: 5, seconds: 12},
   carrot: {name: 'Mrkva', icon: '🥕', cost: 5, reward: 11, seconds: 25},
   corn: {name: 'Kukurica', icon: '🌽', cost: 10, reward: 23, seconds: 45},
+  potato: {name: 'Zemiaky', icon: '🥔', cost: 7, reward: 8, seconds: 35, upgrade: 'shopExpanded', detail: '2 kusy zo záhona'},
+  strawberry: {name: 'Jahody', icon: '🍓', cost: 9, reward: 12, seconds: 30, upgrade: 'shopExpanded', detail: '2 zbery'},
+  pumpkin: {name: 'Tekvica', icon: '🎃', cost: 14, reward: 36, seconds: 80, upgrade: 'southOpen'},
 };
 const $ = id => document.getElementById(id);
 let farm = null;
@@ -30,14 +33,21 @@ const avatarLayer = $('avatars');
 const field = $('field');
 const world = $('world');
 const panel = $('farm-panel');
+const seedPicker = $('seed-picker');
+const shopPanel = $('shop-panel');
 const seedToggle = $('seed-toggle');
 const panelToggle = $('panel-toggle');
 let panelOpener = null;
 const sellButton = $('sell-stock');
+const depositButton = $('deposit-stock');
+const panelTabs = [...panel.querySelectorAll('[role=tab]')];
 const wheelbarrowButton = $('buy-wheelbarrow');
 const shopButtons = [];
+const shopExpansion = $('expand-shop');
+const southExpansion = $('open-south');
 const workButton = $('work-plot');
 let nearestPlot = -1;
+let pendingPlot = null;
 let inventoryView = null;
 const peers = new Map();
 const keys = new Set();
@@ -89,8 +99,8 @@ function drawAvatar(element, point, width, height) {
 }
 
 function walkable(x, y, map) {
-  const {width, height, radius, obstacles} = map;
-  if (x < radius || x > width - radius || y < radius || y > height - radius) return false;
+  const {width, playableHeight, radius, obstacles} = map;
+  if (x < radius || x > width - radius || y < radius || y > playableHeight - radius) return false;
   return !obstacles.some(wall =>
     x > wall.x - radius && x < wall.x + wall.w + radius &&
     y > wall.y - radius && y < wall.y + wall.h + radius);
@@ -103,7 +113,7 @@ function cameraOffset(position, viewport, worldSize) {
 
 function renderMap(map) {
   world.style.width = map.width + 'px';
-  world.style.height = map.height + 'px';
+  world.style.height = Math.min(map.height, map.playableHeight + 20) + 'px';
   $('terrain').replaceChildren();
   for (const item of [...map.landmarks, ...map.obstacles]) {
     const tile = document.createElement('div');
@@ -121,6 +131,7 @@ function renderMap(map) {
   for (const [id, place, label] of [
     ['barn', map.barnDoor, 'Vchod do stodoly'],
     ['shop', map.shopDoor, 'Vchod do obchodu'],
+    ['gate', map.southGate, map.playableHeight === map.height ? 'Južné pole' : 'Južná brána'],
   ]) {
     const door = document.createElement('div');
     door.className = 'barn-door ' + id + '-entrance';
@@ -129,8 +140,10 @@ function renderMap(map) {
     door.textContent = label;
     $('terrain').append(door);
   }
+  const plots = $('plots');
+  while (plots.children.length > map.plots.length) plots.lastElementChild.remove();
   map.plots.forEach(({x, y}, index) => {
-    const plot = $('plots').children[index];
+    const plot = plots.children[index] ?? addPlot(index);
     plot.style.left = x + 'px';
     plot.style.top = y + 'px';
   });
@@ -156,7 +169,7 @@ function animate(frame) {
         position.y = (y + dy * distance) / height;
       }
       const left = cameraOffset(x, field.clientWidth, width);
-      const top = cameraOffset(position.y * height, field.clientHeight, height);
+      const top = cameraOffset(position.y * height, field.clientHeight, Math.min(height, farm.layout.playableHeight + 20));
       world.style.transform = 'translate(' + left + 'px,' + top + 'px)';
       drawAvatar(ownAvatar, position, width, height);
       updateTarget();
@@ -174,30 +187,69 @@ requestAnimationFrame(animate);
 
 function closePanel(restoreFocus = true) {
   panel.hidden = true;
+  seedPicker.hidden = true;
+  shopPanel.hidden = true;
+  workButton.setAttribute('aria-expanded', 'false');
   panelToggle.setAttribute('aria-expanded', 'false');
   seedToggle.setAttribute('aria-expanded', 'false');
   if (restoreFocus) panelOpener?.focus();
   panelOpener = null;
 }
 
-function openPanel(opener, focusTarget) {
-  if (!panel.hidden && panelOpener === opener) {
+function selectPanelTab(id, focus = true) {
+  for (const tab of panelTabs) {
+    const active = tab.id === 'tab-' + id;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    $(tab.getAttribute('aria-controls')).hidden = !active;
+    if (active && focus) tab.focus();
+  }
+  panel.querySelector('.panel-content').scrollTop = 0;
+}
+
+function openPanel(opener, tab, toggle = false) {
+  if (toggle && !panel.hidden && panelOpener === opener) {
     closePanel();
     return;
   }
+  closePanel(false);
   panelOpener = opener;
   panel.hidden = false;
   panelToggle.setAttribute('aria-expanded', 'true');
-  seedToggle.setAttribute('aria-expanded', 'true');
-  focusTarget.focus();
+  selectPanelTab(tab);
 }
 
-seedToggle.onclick = () => openPanel(seedToggle, $('seed-heading'));
-panelToggle.onclick = () => openPanel(panelToggle, $('panel-close'));
-$('panel-close').onclick = () => closePanel();
+for (const [index, tab] of panelTabs.entries()) {
+  tab.onclick = () => selectPanelTab(tab.id.slice(4));
+  tab.onkeydown = event => {
+    const destinations = {
+      ArrowLeft: (index + panelTabs.length - 1) % panelTabs.length,
+      ArrowRight: (index + 1) % panelTabs.length,
+      Home: 0,
+      End: panelTabs.length - 1,
+    };
+    if (!(event.key in destinations)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectPanelTab(panelTabs[destinations[event.key]].id.slice(4));
+  };
+}
+seedToggle.onclick = () => {
+  const wasOpen = !seedPicker.hidden;
+  closePanel(false);
+  if (wasOpen) return;
+  panelOpener = seedToggle;
+  seedPicker.hidden = false;
+  seedToggle.setAttribute('aria-expanded', 'true');
+  $('seed-heading').focus();
+};
+panelToggle.onclick = () => openPanel(panelToggle, 'bag', true);
+for (const id of ['panel-close', 'seed-close', 'shop-close']) {
+  $(id).onclick = () => closePanel();
+}
 
 window.addEventListener('keydown', event => {
-  if (event.code === 'Escape' && !panel.hidden) {
+  if (event.code === 'Escape' && panelOpener) {
     closePanel();
     return;
   }
@@ -247,6 +299,11 @@ function message(value = '') {
 }
 
 function record(data) {
+  if (!farm || farm.southOpen !== data.southOpen) renderMap(data.layout);
+  if (crops[selected].upgrade && !data[crops[selected].upgrade]) {
+    selected = 'radish';
+    updateSeedSelection();
+  }
   farm = data;
   serverClock = data.time;
   clockReceived = performance.now();
@@ -261,7 +318,6 @@ function open(data) {
   $('plots').querySelector('.in-reach')?.classList.remove('in-reach');
   const {width, height, spawn} = data.layout;
   position = {x: (spawn.x + Math.random() * 60 - 30) / width, y: spawn.y / height};
-  renderMap(data.layout);
   sentPosition = null;
   $('lobby').hidden = true;
   $('game').hidden = false;
@@ -297,13 +353,21 @@ function atShop() {
   return mapDistance(shopDoor) <= shopDoor.reach;
 }
 
+function atSouthGate() {
+  const {southGate} = farm.layout;
+  return !farm.southOpen && mapDistance(southGate) <= southGate.reach;
+}
+
 function interact() {
-  if (atShop()) {
-    if (panel.hidden || panelOpener !== workButton) {
-      openPanel(workButton, $('shop-heading'));
-    } else {
-      $('shop-heading').focus();
-    }
+  if (atSouthGate()) {
+    openPanel(workButton, 'expansion');
+  } else if (atShop()) {
+    if (!shopPanel.hidden) return;
+    closePanel(false);
+    panelOpener = workButton;
+    shopPanel.hidden = false;
+    workButton.setAttribute('aria-expanded', 'true');
+    $('shop-heading').focus();
   } else if (atBarn()) {
     if (total(farm.bag)) workBarn('deposit');
     else if (total(farm.barn)) workBarn('sell');
@@ -333,17 +397,20 @@ function updateTarget() {
   const growing = Boolean(plant && remaining(plant));
   const nearBarn = atBarn();
   const nearShop = atShop();
+  if (!nearShop && !shopPanel.hidden) closePanel();
+  const nearGate = atSouthGate();
   const noSeeds = !plant && !farm.seeds[selected];
   const hasBag = total(farm.bag) > 0;
   const hasStock = total(farm.barn) > 0;
   const value = Object.entries(farm.barn).reduce((sum, [id, count]) => sum + crops[id].reward * count, 0);
-  const label = nearShop ? 'E · Otvoriť obchod' : nearBarn
+  const label = pendingPlot ? pendingPlot.label : nearGate ? 'E · Južná brána' : nearShop ? 'E · Otvoriť obchod' : nearBarn
     ? (hasBag ? 'E · Uložiť úrodu' : hasStock ? 'E · Predať úrodu za ' + value + ' 🪙' : 'Stodola je prázdna')
     : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : growing
       ? crops[plant.crop].name + ' dozrieva'
       : noSeeds ? 'Semienka kúpiš v obchode' : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
   if (workButton.textContent !== label) workButton.textContent = label;
-  workButton.disabled = busy || (!nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
+  workButton.disabled = busy || (!nearGate && !nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
+  depositButton.disabled = busy || !nearBarn || !hasBag;
   sellButton.disabled = busy || !nearBarn || !hasStock;
   const sellLabel = hasStock ? 'Predať za ' + value + ' 🪙' : 'Predať úrodu';
   if (sellButton.textContent !== sellLabel) sellButton.textContent = sellLabel;
@@ -351,11 +418,17 @@ function updateTarget() {
     : 'Kúpiť fúrik za ' + farm.layout.wheelbarrow.cost + ' 🪙';
   if (wheelbarrowButton.textContent !== wheelbarrowLabel) wheelbarrowButton.textContent = wheelbarrowLabel;
   wheelbarrowButton.disabled = busy || !nearBarn || farm.wheelbarrow || farm.coins < farm.layout.wheelbarrow.cost;
-  const hint = nearShop ? 'Vyber plodinu a množstvo.' : 'Pristúp k vchodu do obchodu.';
-  if ($('shop-hint').textContent !== hint) $('shop-hint').textContent = hint;
-  for (const {button, cost} of shopButtons) {
+  for (const {button, cost, quantity} of shopButtons) {
+    button.hidden = quantity === 10 && !farm.shopExpanded;
     button.disabled = busy || !nearShop || farm.coins < cost;
   }
+  const shopLabel = farm.shopExpanded ? 'Obchod rozšírený' : 'Rozšíriť obchod za ' + farm.layout.shopExpansionCost + ' 🪙';
+  const southLabel = farm.southOpen ? 'Južné pole otvorené' : 'Obnoviť bránu za ' + farm.layout.southGate.cost + ' 🪙';
+  if (shopExpansion.textContent !== shopLabel) shopExpansion.textContent = shopLabel;
+  if (southExpansion.textContent !== southLabel) southExpansion.textContent = southLabel;
+  shopExpansion.disabled = busy || !nearShop || farm.shopExpanded || farm.coins < farm.layout.shopExpansionCost;
+  southExpansion.disabled = busy || !nearGate || !farm.shopExpanded || farm.coins < farm.layout.southGate.cost;
+  $('terrain').querySelector('.gate-entrance').classList.toggle('in-reach', nearGate);
   $('terrain').querySelector('.barn-entrance').classList.toggle('in-reach', nearBarn);
   $('terrain').querySelector('.shop-entrance').classList.toggle('in-reach', nearShop);
 }
@@ -364,13 +437,7 @@ async function actAtPosition(payload) {
   const point = {...position};
   const code = farm.code;
   const current = ++generation;
-  await polling;
-  if (generation !== current) return;
-  await api(code, {action: 'position', ...point});
-  if (generation !== current) return;
-  sentPosition = point;
-  sentAt = performance.now();
-  const data = await api(code, payload);
+  const data = await api(code, {...payload, position: point});
   if (generation !== current) return;
   record(data);
   return data;
@@ -391,11 +458,23 @@ function workPlot(index) {
       message('Toto semienko najprv kúp v obchode.');
       return;
     }
-    const data = await actAtPosition({
-      plot: index, crop: selected, planted: plant?.planted,
-      action: plant ? 'harvest' : 'plant',
-    });
-    if (data && plant) message('Úroda je v inventári. Odnes ju do stodoly.');
+    const button = $('plots').children[index];
+    pendingPlot = {label: plant ? 'Zbieram…' : 'Sadím…'};
+    button.classList.add('pending');
+    button.setAttribute('aria-busy', 'true');
+    workButton.textContent = pendingPlot.label;
+    workButton.disabled = true;
+    try {
+      const data = await actAtPosition({
+        plot: index, crop: selected, planted: plant?.planted,
+        action: plant ? 'harvest' : 'plant',
+      });
+      if (data && plant) message('Úroda je v inventári. Odnes ju do stodoly.');
+    } finally {
+      pendingPlot = null;
+      button.classList.remove('pending');
+      button.removeAttribute('aria-busy');
+    }
   });
 }
 
@@ -418,8 +497,18 @@ function workBarn(action) {
 }
 
 workButton.onclick = interact;
+depositButton.onclick = () => workBarn('deposit');
 sellButton.onclick = () => workBarn('sell');
 wheelbarrowButton.onclick = () => workBarn('buy-wheelbarrow');
+
+function buyExpansion(action, notice) {
+  return run(async () => {
+    if (await actAtPosition({action})) message(notice);
+  });
+}
+
+shopExpansion.onclick = () => buyExpansion('expand-shop', 'Obchod teraz predáva zemiaky, jahody a balenia po 10 kusov.');
+southExpansion.onclick = () => buyExpansion('open-south', 'Južné pole je otvorené. V obchode kúpiš tekvice.');
 
 function buySeed(crop, quantity) {
   return run(async () => {
@@ -487,7 +576,10 @@ function render() {
   $('selected-seed').textContent = seed.icon + ' ' + seed.name + ' × ' + (farm.seeds[selected] ?? 0);
   for (const [id, crop] of Object.entries(crops)) {
     const summary = $('seed-count-' + id);
-    const label = 'V zásobe ' + (farm.seeds[id] ?? 0) + ' · ' + crop.seconds + ' s';
+    const label = 'V zásobe ' + (farm.seeds[id] ?? 0) + ' · ' + crop.seconds + ' s' + (crop.detail ? ' · ' + crop.detail : '');
+    const locked = Boolean(crop.upgrade && !farm[crop.upgrade]);
+    summary.closest('button').hidden = locked;
+    $('shop-' + id).hidden = locked;
     if (summary.textContent !== label) summary.textContent = label;
   }
   renderInventory();
@@ -521,8 +613,15 @@ async function run(operation) {
   }
 }
 
+function updateSeedSelection() {
+  for (const button of $('seeds').children) {
+    button.setAttribute('aria-pressed', button.dataset.crop === selected);
+  }
+}
+
 for (const [id, crop] of Object.entries(crops)) {
   const button = document.createElement('button');
+  button.dataset.crop = id;
   button.type = 'button';
   button.className = 'seed';
   button.setAttribute('aria-pressed', id === selected);
@@ -530,7 +629,7 @@ for (const [id, crop] of Object.entries(crops)) {
     crop.name + '<small id="seed-count-' + id + '"></small></span>';
   button.onclick = () => {
     selected = id;
-    for (const seed of $('seeds').children) seed.setAttribute('aria-pressed', seed === button);
+    updateSeedSelection();
     message();
     render();
     closePanel();
@@ -539,10 +638,11 @@ for (const [id, crop] of Object.entries(crops)) {
 
   const listing = document.createElement('div');
   listing.className = 'shop-listing';
+  listing.id = 'shop-' + id;
   const name = document.createElement('strong');
   name.textContent = crop.icon + ' ' + crop.name;
   listing.append(name);
-  for (const quantity of [1, 5]) {
+  for (const quantity of [1, 5, 10]) {
     const cost = crop.cost * quantity;
     const buy = document.createElement('button');
     buy.type = 'button';
@@ -551,17 +651,18 @@ for (const [id, crop] of Object.entries(crops)) {
     buy.setAttribute('aria-label', 'Kúpiť ' + quantity + ' ks: ' + crop.name + ' za ' + cost + ' mincí');
     buy.onclick = () => buySeed(id, quantity);
     listing.append(buy);
-    shopButtons.push({button: buy, cost});
+    shopButtons.push({button: buy, cost, quantity});
   }
   $('shop-items').append(listing);
 }
-for (let index = 0; index < 16; index++) {
+function addPlot(index) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'plot';
   button.innerHTML = '<span class="plot-icon" aria-hidden="true"></span><small aria-hidden="true"></small>';
   button.onclick = () => workPlot(index);
   $('plots').append(button);
+  return button;
 }
 $('create').onclick = () => run(async () => open(await api('', {})));
 $('join').onsubmit = event => {

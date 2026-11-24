@@ -10,7 +10,8 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 final class FarmController extends Controller
 {
-    private const CROPS = ['radish' => [2, 5, 12], 'carrot' => [5, 11, 25], 'corn' => [10, 23, 45]];
+    private const CROPS = ['radish' => [2, 5, 12], 'carrot' => [5, 11, 25], 'corn' => [10, 23, 45],
+        'potato' => [7, 8, 35], 'strawberry' => [9, 12, 30], 'pumpkin' => [14, 36, 80]];
     private const PRESENCE_TTL = 10000;
     private const BARN = 'barn';
 
@@ -44,15 +45,21 @@ final class FarmController extends Controller
                             throw new HttpException(400, 'Neplatný hráč.');
                         }
                         $action = $body['action'] ?? null;
+                        $position = $body['position'] ?? null;
+                        if ($position !== null && !is_array($position)) {
+                            throw new HttpException(400, 'Neplatná poloha.');
+                        }
                         if ($action === 'position') {
                             [$coins, $plots] = $this->loadFarm($code);
                             $this->updatePosition($code, $playerId, $body);
                         } elseif ($action === 'buy-seed') {
-                            [$coins, $plots] = $this->buySeed($code, $playerId, $body);
+                            [$coins, $plots] = $this->buySeed($code, $playerId, $body, $position);
+                        } elseif ($action === 'expand-shop' || $action === 'open-south') {
+                            [$coins, $plots] = $this->expandFarm($code, $playerId, $action, $position);
                         } elseif (in_array($action, ['deposit', 'sell', 'buy-wheelbarrow'], true)) {
-                            [$coins, $plots] = $this->workBarn($code, $playerId, $action);
+                            [$coins, $plots] = $this->workBarn($code, $playerId, $action, $position);
                         } else {
-                            [$coins, $plots] = $this->updateFarm($code, $playerId, $body);
+                            [$coins, $plots] = $this->updateFarm($code, $playerId, $body, $position);
                         }
                     }
                     return [$code, $coins, $plots];
@@ -65,17 +72,23 @@ final class FarmController extends Controller
                     'self' => $player->id === $playerId, 'x' => (float) $player->x, 'y' => (float) $player->y,
                 ]);
             $inventories = DB::table('farm_inventories')->where('farm', $code)
-                ->whereIn('owner', array_filter([self::BARN, $playerId]))->pluck('contents', 'owner');
-            $wheelbarrow = (bool) DB::table('farms')->where('code', $code)->value('wheelbarrow');
-            $layout = config('farm');
-            if ($wheelbarrow) {
-                $layout['bagCapacity'] = $layout['wheelbarrow']['capacity'];
+                ->whereIn('owner', array_filter([self::BARN, $playerId]))
+                ->get(['owner', 'contents', 'seeds'])->keyBy('owner');
+            $personal = $inventories->get($playerId ?? '');
+            $shared = $inventories->get(self::BARN);
+            $upgrades = $this->upgrades($code);
+            $layout = $this->layout($upgrades);
+            // A concurrent unlock may finish after the farm snapshot was read.
+            if (count($plots) < count($layout['plots'])) {
+                [$coins, $plots] = $this->loadFarm($code);
             }
             return response()->json([
-                'seeds' => (object) ($playerId === null ? [] : $this->seedStock($code, $playerId)),
-                'wheelbarrow' => $wheelbarrow,
-                'bag' => (object) $this->decodeContents($inventories->get($playerId ?? '')),
-                'barn' => (object) $this->decodeContents($inventories->get(self::BARN)),
+                'seeds' => (object) ($this->decodeContents($personal->seeds ?? null)),
+                'wheelbarrow' => (bool) $upgrades->wheelbarrow,
+                'shopExpanded' => (bool) $upgrades->shop_expanded,
+                'southOpen' => (bool) $upgrades->south_open,
+                'bag' => (object) $this->decodeContents($personal->contents ?? null),
+                'barn' => (object) $this->decodeContents($shared->contents ?? null),
                 'code' => $code, 'coins' => $coins, 'plots' => $plots, 'time' => $now, 'players' => $players,
                 'layout' => $layout,
             ])->header('Cache-Control', 'no-store');
@@ -99,14 +112,68 @@ final class FarmController extends Controller
         return [(int) $row->coins, json_decode($row->plots, true, 512, JSON_THROW_ON_ERROR)];
     }
 
-    private function updateFarm(string $code, string $playerId, array $body): array {
+    private function upgrades(string $code): object
+    {
+        return DB::table('farms')->where('code', $code)->first(['wheelbarrow', 'shop_expanded', 'south_open']);
+    }
+
+    private function layout(object $upgrades): array
+    {
+        $map = config('farm');
+        $south = $map['south'];
+        unset($map['south']);
+        $map['playableHeight'] = $upgrades->south_open ? $map['height'] : $map['closedHeight'];
+        if ($upgrades->south_open) {
+            $map['plots'] = [...$map['plots'], ...$south['plots']];
+            $map['landmarks'] = [...$map['landmarks'], ...$south['landmarks']];
+        } else {
+            $map['obstacles'][] = ['kind' => 'fence', 'x' => 522, 'y' => 756, 'w' => 108, 'h' => 16];
+            $map['obstacles'][] = ['kind' => 'fence', 'x' => 928, 'y' => 756, 'w' => 98, 'h' => 16];
+        }
+        if ($upgrades->wheelbarrow) {
+            $map['bagCapacity'] = $map['wheelbarrow']['capacity'];
+        }
+        return $map;
+    }
+
+    private function expandFarm(string $code, string $playerId, string $action, ?array $position): array
+    {
+        [$coins, $plots] = $this->loadFarm($code, true);
+        $upgrades = $this->upgrades($code);
+        $map = config('farm');
+        $shop = $action === 'expand-shop';
+        $column = $shop ? 'shop_expanded' : 'south_open';
+        $target = $shop ? $map['shopDoor'] : $map['southGate'];
+        $cost = $shop ? $map['shopExpansionCost'] : $target['cost'];
+        $this->checkReach($code, $playerId, $target, $target['reach'], $shop ? 'obchodu' : 'južnej bráne', $position, $upgrades);
+        if ($upgrades->{$column}) {
+            throw new HttpException(409, 'Toto vylepšenie už máte.');
+        }
+        if (!$shop && !$upgrades->shop_expanded) {
+            throw new HttpException(409, 'Najprv rozšír obchod so semienkami.');
+        }
+        if ($coins < $cost) {
+            throw new HttpException(409, 'Na vylepšenie zatiaľ nemáte dosť mincí.');
+        }
+        $coins -= $cost;
+        if (!$shop) {
+            $plots = [...$plots, ...array_fill(0, count($map['south']['plots']), null)];
+        }
+        DB::table('farms')->where('code', $code)->update([
+            $column => true, 'coins' => $coins, 'plots' => json_encode($plots, JSON_THROW_ON_ERROR),
+        ]);
+        return [$coins, $plots];
+    }
+
+    private function updateFarm(string $code, string $playerId, array $body, ?array $position): array {
         [$coins, $plots] = $this->loadFarm($code, true);
         $index = $body['plot'] ?? null;
         if (!is_int($index) || !array_key_exists($index, $plots)) {
             throw new HttpException(400, 'Neplatný záhon.');
         }
-        $map = config('farm');
-        $this->checkReach($code, $playerId, $map['plots'][$index], $map['reach'], 'záhonu');
+        $upgrades = $this->upgrades($code);
+        $map = $this->layout($upgrades);
+        $this->checkReach($code, $playerId, $map['plots'][$index], $map['reach'], 'záhonu', $position, $upgrades);
 
         $plant = $plots[$index];
         $action = $body['action'] ?? null;
@@ -134,15 +201,17 @@ final class FarmController extends Controller
                 throw new HttpException(409, 'Na tomto záhone zatiaľ nie je čo zožať.');
             }
             $bag = $this->inventory($code, $playerId);
-            $wheelbarrow = (bool) DB::table('farms')->where('code', $code)->value('wheelbarrow');
-            $capacity = $wheelbarrow ? $map['wheelbarrow']['capacity'] : $map['bagCapacity'];
-            if (array_sum($bag) >= $capacity) {
+            $crop = $plant['crop'];
+            $yield = $crop === 'potato' ? 2 : 1;
+            if (array_sum($bag) + $yield > $map['bagCapacity']) {
                 throw new HttpException(409, 'Máš plný inventár. Odnes úrodu do stodoly.');
             }
-            $crop = $plant['crop'];
-            $bag[$crop] = ($bag[$crop] ?? 0) + 1;
+            $bag[$crop] = ($bag[$crop] ?? 0) + $yield;
             $this->saveInventory($code, $playerId, $bag);
-            $plots[$index] = null;
+            $now = max($this->timestamp(), $plant['planted'] + 1);
+            $plots[$index] = $crop === 'strawberry' && empty($plant['regrown'])
+                ? ['crop' => $crop, 'planted' => $now, 'ready' => $now + self::CROPS[$crop][2] * 1000, 'regrown' => true]
+                : null;
         } else {
             throw new HttpException(400, 'Neznáma akcia.');
         }
@@ -185,15 +254,21 @@ final class FarmController extends Controller
         ], ['farm', 'owner'], ['seeds']);
     }
 
-    private function buySeed(string $code, string $playerId, array $body): array
+    private function buySeed(string $code, string $playerId, array $body, ?array $position): array
     {
         [$coins, $plots] = $this->loadFarm($code, true);
         $door = config('farm.shopDoor');
-        $this->checkReach($code, $playerId, $door, $door['reach'], 'obchodu');
+        $upgrades = $this->upgrades($code);
+        $this->checkReach($code, $playerId, $door, $door['reach'], 'obchodu', $position, $upgrades);
         $crop = $body['crop'] ?? null;
         $quantity = $body['quantity'] ?? 1;
-        if (!is_string($crop) || !isset(self::CROPS[$crop]) || !in_array($quantity, [1, 5], true)) {
+        $packSizes = $upgrades->shop_expanded ? [1, 5, 10] : [1, 5];
+        if (!is_string($crop) || !isset(self::CROPS[$crop]) || !in_array($quantity, $packSizes, true)) {
             throw new HttpException(400, 'Neplatný nákup semienok.');
+        }
+        if ((in_array($crop, ['potato', 'strawberry'], true) && !$upgrades->shop_expanded)
+            || ($crop === 'pumpkin' && !$upgrades->south_open)) {
+            throw new HttpException(409, 'Táto plodina ešte nie je odomknutá.');
         }
         $cost = self::CROPS[$crop][0] * $quantity;
         if ($coins < $cost) {
@@ -208,12 +283,12 @@ final class FarmController extends Controller
         return [$coins, $plots];
     }
 
-    private function workBarn(string $code, string $playerId, string $action): array
+    private function workBarn(string $code, string $playerId, string $action, ?array $position): array
     {
         // Use the same farm lock as harvesting so every crop can be transferred or sold once.
         [$coins, $plots] = $this->loadFarm($code, true);
         $door = config('farm.barnDoor');
-        $this->checkReach($code, $playerId, $door, $door['reach'], 'dverám stodoly');
+        $this->checkReach($code, $playerId, $door, $door['reach'], 'dverám stodoly', $position);
         if ($action === 'buy-wheelbarrow') {
             $farm = DB::table('farms')->where('code', $code);
             if ($farm->value('wheelbarrow')) {
@@ -254,18 +329,26 @@ final class FarmController extends Controller
         return [$coins, $plots];
     }
 
-    private function checkReach(string $code, string $id, array $target, float $reach, string $label): void
-    {
-        $player = DB::table('players')->where('farm', $code)->where('id', $id)
-            ->where('seen', '>=', $this->timestamp() - self::PRESENCE_TTL)->first(['x', 'y']);
+    private function checkReach(
+        string $code, string $id, array $target, float $reach, string $label,
+        ?array $position, ?object $upgrades = null,
+    ): void {
         $map = config('farm');
-        if (!$player || hypot($player->x * $map['width'] - $target['x'],
-                              $player->y * $map['height'] - $target['y']) > $reach) {
+        if ($position !== null) {
+            [$x, $y] = $this->validatePosition($position, $this->layout($upgrades ?? $this->upgrades($code)));
+        } else {
+            $player = DB::table('players')->where('farm', $code)->where('id', $id)
+                ->where('seen', '>=', $this->timestamp() - self::PRESENCE_TTL)->first(['x', 'y']);
+            $x = $player->x ?? null;
+            $y = $player->y ?? null;
+        }
+        if ($x === null || hypot($x * $map['width'] - $target['x'], $y * $map['height'] - $target['y']) > $reach) {
             throw new HttpException(409, 'Najprv pristúp bližšie k '.$label.'.');
         }
     }
 
-    private function updatePosition(string $code, string $id, array $body): void {
+    private function validatePosition(array $body, array $map): array
+    {
         $coordinates = [];
         foreach (['x', 'y'] as $axis) {
             $value = $body[$axis] ?? null;
@@ -274,12 +357,11 @@ final class FarmController extends Controller
             }
             $coordinates[] = $value;
         }
-        $map = config('farm');
         $x = $coordinates[0] * $map['width'];
         $y = $coordinates[1] * $map['height'];
         $radius = $map['radius'];
         if ($x < $radius || $x > $map['width'] - $radius ||
-            $y < $radius || $y > $map['height'] - $radius) {
+            $y < $radius || $y > $map['playableHeight'] - $radius) {
             throw new HttpException(409, 'Táto poloha je mimo mapy.');
         }
         foreach ($map['obstacles'] as $wall) {
@@ -289,10 +371,16 @@ final class FarmController extends Controller
             }
         }
 
+        return $coordinates;
+    }
+
+    private function updatePosition(string $code, string $id, array $body): void
+    {
+        [$x, $y] = $this->validatePosition($body, $this->layout($this->upgrades($code)));
         $now = $this->timestamp();
         DB::table('players')->where('farm', $code)->where('seen', '<', $now - self::PRESENCE_TTL)->delete();
         DB::table('players')->upsert([
-            'farm' => $code, 'id' => $id, 'x' => $coordinates[0], 'y' => $coordinates[1], 'seen' => $now,
+            'farm' => $code, 'id' => $id, 'x' => $x, 'y' => $y, 'seen' => $now,
         ], ['farm', 'id'], ['x', 'y', 'seen']);
     }
 }
