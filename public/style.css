@@ -117,7 +117,7 @@ button.hud-chip{pointer-events:auto}
 .farm-panel{position:absolute;z-index:3;top:70px;right:max(12px,env(safe-area-inset-right));bottom:84px;width:min(300px,calc(100% - 24px));overflow:auto;overscroll-behavior:contain;box-shadow:0 10px 28px #1f271b66;scrollbar-color:#a98c58 transparent}
 .panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #ddc79a;padding-bottom:9px}
 .panel-header h2{margin:0}
-#panel-close,#seed-close,#shop-close{width:40px;height:40px;padding:0;font-size:1.4rem}
+#panel-close,#seed-close,#shop-close,#menu-close,#barn-close{width:40px;height:40px;padding:0;font-size:1.4rem}
 .screen-bottom{bottom:0;padding:0 max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));background:linear-gradient(transparent,#263b2de6)}
 .screen-controls{display:grid;grid-template-columns:1fr minmax(160px,auto) 1fr;gap:12px;align-items:end}
 .screen-controls button{pointer-events:auto}
@@ -169,8 +169,8 @@ button.hud-chip{pointer-events:auto}
 .panel-content .seed{margin-bottom:6px}
 .stock-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .stock-actions #sell-stock{margin:0}
-#pane-invite strong{display:block;margin:4px 0 10px;letter-spacing:.1em}
-#pane-invite input{margin-top:10px}
+#game-menu strong{display:block;margin:4px 0 10px;letter-spacing:.1em}
+#game-menu input{margin-top:10px}
 .shop-listing{grid-template-columns:repeat(3,minmax(0,1fr))}
 .shop-listing strong{grid-column:1/-1}
 .shop-listing button{font-size:.82rem}
@@ -186,9 +186,43 @@ button.hud-chip{pointer-events:auto}
 
 .farm-panel.seed-picker{left:max(12px,env(safe-area-inset-left));right:auto;bottom:auto;width:min(285px,calc(100% - 24px));max-height:calc(100% - 145px);margin:0}
 
-#farm-panel .panel-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
 .shop-upgrades{display:grid;gap:14px}
 .shop-upgrades button,#sell-bag{margin:0}
 #sell-bag{margin-top:12px}
 .terrain.locked-field{background:#30432b99;border-radius:8px;border:2px dashed #e8d4a680}
 .terrain.locked-field span{top:50%;transform:translate(-50%,-50%)}
+
+.hud-chip.weather{min-height:0;padding:5px 8px;font-size:.8rem;box-shadow:none}
+.plot.wet{background:#34536775;border-color:#b2d8db99}
+.plot.spent{background:#47332585}
+.plot.wet small,.plot.spent small{visibility:visible;font-size:.72rem}
+.field.raining::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;background:repeating-linear-gradient(115deg,transparent 0 30px,#d4edff20 31px 32px,transparent 33px 55px)}
+@media(max-width:560px){.hud-chip.weather{position:absolute;top:62px;right:12px}}
+
+.menu-keys{padding:8px 14px;border-top:1px solid #ddc79a;font-size:.82rem;color:#384b35;background:#f4ead0}
+.farm-panel :focus-visible{outline:3px solid #426837;outline-offset:-2px}
+@media(pointer:coarse){.menu-keys{display:none}}
+
+#game-menu{bottom:auto;max-height:calc(100% - 140px)}
+@media(max-width:460px){#seed-toggle{min-width:0}#selected-seed{overflow:hidden;text-overflow:ellipsis}#panel-toggle,#menu-toggle{flex-shrink:0}.screen-top .hud-status:last-child{flex-shrink:0}}
+
+.hud-chip.water{min-height:0;padding:5px 8px;font-size:.8rem;box-shadow:none}
+.hud-chip.water.empty{border-color:#ffcc9a;color:#ffe3be}
+.terrain.well{border:7px solid #838678;border-radius:50%;background:radial-gradient(ellipse at 55% 40%,#8abacc 0 14%,#48778b 19% 55%,#28485a 78%);box-shadow:0 4px #414839,inset 0 0 0 2px #263f47}
+.well-entrance{background:#274953}
+@media(max-width:560px){.hud-chip.water{position:absolute;top:62px;left:12px}}
+
+#sell-bag[aria-disabled=true],.shop-listing button[aria-disabled=true]{background:#ece4ce;color:#625b48;cursor:default}
+#sell-bag[aria-disabled=true]:hover,.shop-listing button[aria-disabled=true]:hover{filter:none}
+
+.terrain.in-reach{outline:2px solid #fff0a9;outline-offset:3px}
+.avatar-action{position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);width:max-content;max-width:min(205px,35vw);padding:5px 8px;border:1px solid #a5b399;border-radius:7px;background:#253a2ef5;color:#fff9e8;font:700 .85rem/1.25 system-ui;text-align:left;box-shadow:0 2px 8px #25332880;pointer-events:none}
+.avatar-action.on-left{left:auto;right:calc(100% + 10px)}
+
+.order-card{border:1px solid #c2ad75;border-radius:12px;padding:12px;background:#fbefd2}
+.order-caption{font-size:.82rem;color:#635536}
+.order-card h2{margin:3px 0 10px}
+.order-card button{margin-top:10px}
+#order-progress .complete{background:#e5edcd}
+#barn-panel button[aria-disabled=true]{background:#ece4ce;color:#625b48;cursor:default}
+#barn-panel button[aria-disabled=true]:hover{filter:none}

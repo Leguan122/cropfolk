@@ -15,6 +15,18 @@ return [
     'closedHeight' => 756,
     'shopExpansionCost' => 65,
     'eastFieldCost' => 45,
+    'orders' => [
+        ['name' => 'Reďkovky na trh', 'crops' => ['radish' => 4], 'reward' => 26],
+        ['name' => 'Úroda pre trh', 'crops' => ['carrot' => 3, 'corn' => 2], 'reward' => 100],
+        ['name' => 'Zeleninový košík', 'crops' => ['radish' => 4, 'carrot' => 4, 'corn' => 1], 'reward' => 110],
+    ],
+    'weather' => ['period' => 180000, 'rain' => 32000],
+    'well' => ['building' => 'well', 'x' => 487, 'y' => 680, 'reach' => 44],
+    'fieldGrid' => ['columns' => 4, 'rows' => 2],
+    'toolTiers' => [
+        'hoe' => [1 => ['cost' => 0, 'rangeSquared' => 0, 'limit' => 1], 2 => ['cost' => 35, 'rangeSquared' => 1, 'limit' => 3], 3 => ['cost' => 80, 'rangeSquared' => 2, 'limit' => 5]],
+        'can' => [1 => ['cost' => 0, 'rangeSquared' => 0, 'limit' => 1, 'capacity' => 6], 2 => ['cost' => 30, 'rangeSquared' => 1, 'limit' => 3, 'capacity' => 12], 3 => ['cost' => 75, 'rangeSquared' => 2, 'limit' => 5, 'capacity' => 20]],
+    ],
     'southGate' => ['x' => 576, 'y' => 714, 'reach' => 46, 'cost' => 110],
     'south' => [
         'plots' => array_map(fn ($index) => [
@@ -29,8 +41,8 @@ return [
         ],
     ],
     'reach' => 70,
-    'barnDoor' => ['x' => 869, 'y' => 695, 'reach' => 43],
-    'shopDoor' => ['x' => 265, 'y' => 689, 'reach' => 48],
+    'barnDoor' => ['building' => 'barn', 'x' => 869, 'y' => 695, 'reach' => 43],
+    'shopDoor' => ['building' => 'shop', 'x' => 265, 'y' => 689, 'reach' => 48],
     'bagCapacity' => 8,
     'wheelbarrow' => ['cost' => 40, 'capacity' => 12],
     'radius' => 16,
@@ -59,6 +71,7 @@ return [
         ['kind' => 'fence', 'x' => 648, 'y' => 138, 'w' => 14, 'h' => 100],
         ['kind' => 'fence', 'x' => 648, 'y' => 331, 'w' => 14, 'h' => 100],
         ['kind' => 'shop', 'x' => 175, 'y' => 525, 'w' => 180, 'h' => 128, 'text' => 'Obchod so semienkami'],
+        ['kind' => 'well', 'x' => 461, 'y' => 607, 'w' => 52, 'h' => 50],
         ['kind' => 'barn', 'x' => 770, 'y' => 520, 'w' => 198, 'h' => 140, 'text' => 'Stodola'],
     ],
 ];

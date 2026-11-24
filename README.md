@@ -2,13 +2,27 @@
 
 Kooperatívna 2D farmárska hra v Laraveli 13. Na farme sa pohybuješ cez WASD, šípky alebo dotykové tlačidlá. Pristúp k záhonu a na jeho obrábanie stlač E, klikni na záhon v dosahu alebo použi tlačidlo pod mapou. Najbližší záhon v dosahu sa zvýrazní. Zo spoločného dvora vedie chodník k bránkam oboch polí. Kamera sleduje avatara a stodola aj ploty bránia prechodu.
 
-Po vstupe do hry mapa vyplní celé okno. Mince a vybrané semienka vidíš hore nad mapou. Tlačidlo Batoh otvorí zásoby. Aktívne semienko vyberieš vľavo hore. Pravý panel obsahuje zásoby a pozvánky. Obchod otvoríš klávesom E pri jeho vchode a po odchode sa automaticky zavrie.
+Po vstupe do hry mapa vyplní celé okno. Mince a vybrané semienka vidíš hore nad mapou. Tlačidlo Batoh otvorí zásoby. Aktívne semienko vyberieš vľavo hore. Batoh obsahuje inventár a zásoby stodoly. Pozvánky nájdeš pod samostatným tlačidlom Menu. Obchod otvoríš klávesom E v jeho blízkosti a po odchode sa automaticky zavrie. Obchod, stodola aj studňa sú dostupné zo všetkých strán. Dostupná akcia sa zobrazí vedľa avatara.
 
 Semienka kúpiš pri vchode do obchodu na západnej strane dvora. Stlač **E** a vyber jeden alebo päť kusov. Výsadba spotrebuje jedno semienko zo zásoby.
 
 Nová farma začína s ôsmimi záhonmi na západnom poli. V obchode pod záložkou Vylepšenia odomkneš východné pole za 45 spoločných mincí a rozšíriš obchod za 65 mincí. Rozšírenie pridá nové semienka. Pribudnú balenia po 10 kusov, zemiaky s dvojitou úrodou a jahody, ktoré po prvom zbere raz dorastú. Po odomknutí východného poľa a rozšírení obchodu môže tím v obchode za 110 mincí obnoviť južnú bránu. Za ňou je ďalších osem záhonov a druhý priechod vedie späť ku stodole. Obchod začne predávať tekvice.
 
-Zrelá úroda ide najprv do osobného inventára (najviac osem kusov). V obchode môžeš za 40 spoločných mincí kúpiť fúrik, ktorý zvýši kapacitu všetkým na 12 kusov. V obchode pod záložkou Predaj môžeš predať úrodu priamo zo svojho batoha. Príď k dverám stodoly a stlač **E**, aby si ju uložil do spoločného skladu. Pri dverách môže ktorýkoľvek hráč predať celý sklad a pripísať mince do spoločnej pokladnice. Inventár zostáva k dispozícii po obnovení tej istej karty. Pozvánka pre kamarátov je dostupná priamo v hre.
+Zrelá úroda ide najprv do osobného inventára (najviac osem kusov). V obchode môžeš za 40 spoločných mincí kúpiť fúrik, ktorý zvýši kapacitu všetkým na 12 kusov. V obchode pod záložkou Predaj môžeš predať úrodu priamo zo svojho batoha. Pri stodole stlač **E** a vyber uloženie do spoločného skladu. Pri dverách môže ktorýkoľvek hráč predať celý sklad a pripísať mince do spoločnej pokladnice. Inventár zostáva k dispozícii po obnovení tej istej karty. Pozvánka pre kamarátov je dostupná priamo v hre.
+
+## Spoločné objednávky
+
+Pri stodole otvor klávesom E spoločný sklad a aktívnu objednávku. Najprv ulož úrodu z batoha. Každý hráč vidí spoločný postup. Prvá objednávka vyžaduje štyri reďkovky za 26 mincí. Odovzdanie spotrebuje iba požadované kusy a otvorí ďalšiu objednávku. Objednávky nemajú časový limit. V stodole môžeš stále predať celý sklad za bežnú cenu.
+
+## Ovládanie klávesnicou
+
+WASD alebo šípky ovládajú pohyb, E vykoná akciu, Q otvorí výber semienka, I batoh a M menu. V ponukách vyberáš položku cez W/S alebo šípky hore a dole. V obchode sa po cenách pohybuješ vo všetkých smeroch. Záložky meníš cez A/D alebo šípky do strán iba na hornom riadku záložiek. E alebo Enter vybranú položku potvrdí, Esc zavrie ponuku.
+
+## Pôda a nástroje
+
+Na suchom záhone najprv použi krhlu. Po zbere pôdu najprv obrob motykou. Dážď automaticky zavlaží obrobené záhony, kým prší. Jahody po prvom zbere dorastú na tom istom záhone. Kláves E vždy použije nástroj alebo akciu, ktorú zvýraznený záhon potrebuje.
+
+Každá farma má základnú krhlu a motyku. Vyššie úrovne sú spoločné a kúpiš ich pod záložkou Vylepšenia. Nástroje podľa úrovne ošetria až 1, 3 alebo 5 vhodných záhonov naraz. Krhla má podľa úrovne kapacitu 6, 12 alebo 20 dávok. Každý hráč má vlastnú zásobu vody, ktorá ubúda o jednu dávku na poliaty záhon. Doplniť ju môžeš zadarmo pri studni klávesom E.
 
 ## Lokálny vývoj
 

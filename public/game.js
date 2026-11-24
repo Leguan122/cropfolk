@@ -35,14 +35,26 @@ const world = $('world');
 const panel = $('farm-panel');
 const seedPicker = $('seed-picker');
 const shopPanel = $('shop-panel');
+const barnPanel = $('barn-panel');
+const orderButton = $('fulfill-order');
+let orderView = '';
 const seedToggle = $('seed-toggle');
 const panelToggle = $('panel-toggle');
+const gameMenu = $('game-menu');
+const menuToggle = $('menu-toggle');
 let panelOpener = null;
 const sellButton = $('sell-stock');
 const depositButton = $('deposit-stock');
 const tabLists = [...document.querySelectorAll('.panel-tabs')];
 const wheelbarrowButton = $('buy-wheelbarrow');
 const shopButtons = [];
+const soilTools = {hoe: {name: 'Motyka', icon: '⛏'}, can: {name: 'Krhla', icon: '💧'}};
+const fieldActions = {
+  hoe: {label: 'Obrobiť motykou', pending: 'Obrábam…'},
+  water: {label: 'Poliať krhlou', pending: 'Polievam…'},
+  harvest: {label: 'Zožať', pending: 'Zbieram…'},
+  plant: {label: 'Zasadiť', pending: 'Sadím…'},
+};
 const shopExpansion = $('expand-shop');
 const southExpansion = $('open-south');
 const eastExpansion = $('open-east');
@@ -74,6 +86,10 @@ function makeAvatar(label, mine = false) {
   return element;
 }
 const ownAvatar = makeAvatar('Ty', true);
+const avatarAction = document.createElement('div');
+avatarAction.className = 'avatar-action';
+avatarAction.hidden = true;
+ownAvatar.append(avatarAction);
 
 function syncPeers(players) {
   const active = new Set();
@@ -131,8 +147,7 @@ function renderMap(map) {
     $('terrain').append(tile);
   }
   for (const [id, place, label] of [
-    ['barn', map.barnDoor, 'Vchod do stodoly'],
-    ['shop', map.shopDoor, 'Vchod do obchodu'],
+    ['well', map.well, 'Studňa'],
     ['gate', map.southGate, map.playableHeight === map.height ? 'Južné pole' : 'Južná brána'],
   ]) {
     const door = document.createElement('div');
@@ -175,6 +190,7 @@ function animate(frame) {
       const top = cameraOffset(position.y * height, field.clientHeight, Math.min(height, farm.layout.playableHeight + 20));
       world.style.transform = 'translate(' + left + 'px,' + top + 'px)';
       drawAvatar(ownAvatar, position, width, height);
+      avatarAction.classList.toggle('on-left', x + left > field.clientWidth / 2);
       updateTarget();
       const blend = 1 - Math.exp(-elapsed * 16);
       for (const peer of peers.values()) {
@@ -192,11 +208,34 @@ function closePanel(restoreFocus = true) {
   panel.hidden = true;
   seedPicker.hidden = true;
   shopPanel.hidden = true;
+  barnPanel.hidden = true;
+  gameMenu.hidden = true;
+  menuToggle.setAttribute('aria-expanded', 'false');
   workButton.setAttribute('aria-expanded', 'false');
   panelToggle.setAttribute('aria-expanded', 'false');
   seedToggle.setAttribute('aria-expanded', 'false');
   if (restoreFocus) panelOpener?.focus();
   panelOpener = null;
+}
+
+function visibleMenu() {
+  return [seedPicker, shopPanel, barnPanel, panel, gameMenu].find(menu => !menu.hidden);
+}
+
+function menuTabs(menu) {
+  return [...menu.querySelectorAll('[role=tab]')];
+}
+
+function menuActions(menu) {
+  return [...menu.querySelectorAll('.panel-content button:not(:disabled)')]
+    .filter(button => !button.closest('[hidden]'));
+}
+
+function focusMenu(menu, fallback) {
+  const actions = menuActions(menu);
+  const selectedSeed = actions.find(button => button.getAttribute('aria-pressed') === 'true');
+  const available = actions.find(button => button.getAttribute('aria-disabled') !== 'true');
+  (selectedSeed ?? available ?? actions[0] ?? fallback)?.focus();
 }
 
 function selectPanelTab(selectedTab) {
@@ -206,61 +245,121 @@ function selectPanelTab(selectedTab) {
     tab.tabIndex = active ? 0 : -1;
     $(tab.getAttribute('aria-controls')).hidden = !active;
   }
+  const menu = selectedTab.closest('aside');
+  menu.querySelector('.panel-content').scrollTop = 0;
   selectedTab.focus();
-  selectedTab.closest('aside').querySelector('.panel-content').scrollTop = 0;
 }
 
-function openPanel(opener, tab, toggle = false) {
-  if (toggle && !panel.hidden && panelOpener === opener) {
-    closePanel();
+function togglePanel(opener, menu, heading) {
+  const wasOpen = !menu.hidden;
+  closePanel(false);
+  if (wasOpen) {
+    opener.focus();
     return;
   }
-  closePanel(false);
   panelOpener = opener;
-  panel.hidden = false;
-  panelToggle.setAttribute('aria-expanded', 'true');
-  selectPanelTab($('tab-' + tab));
+  keys.clear();
+  menu.hidden = false;
+  opener.setAttribute('aria-expanded', 'true');
+  focusMenu(menu, heading);
 }
 
 for (const list of tabLists) {
-  const tabs = [...list.querySelectorAll('[role=tab]')];
-  for (const [index, tab] of tabs.entries()) {
+  for (const tab of list.querySelectorAll('[role=tab]')) {
     tab.onclick = () => selectPanelTab(tab);
-    tab.onkeydown = event => {
-      const destinations = {
-        ArrowLeft: (index + tabs.length - 1) % tabs.length,
-        ArrowRight: (index + 1) % tabs.length,
-        Home: 0,
-        End: tabs.length - 1,
-      };
-      if (!(event.key in destinations)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      selectPanelTab(tabs[destinations[event.key]]);
-    };
   }
 }
-seedToggle.onclick = () => {
-  const wasOpen = !seedPicker.hidden;
-  closePanel(false);
-  if (wasOpen) return;
-  panelOpener = seedToggle;
-  seedPicker.hidden = false;
-  seedToggle.setAttribute('aria-expanded', 'true');
-  $('seed-heading').focus();
-};
-panelToggle.onclick = () => openPanel(panelToggle, 'bag', true);
-for (const id of ['panel-close', 'seed-close', 'shop-close']) {
+
+function stepFocus(items, current, step) {
+  const index = items.indexOf(current);
+  return items[index < 0 ? (step < 0 ? items.length - 1 : 0)
+    : (index + step + items.length) % items.length];
+}
+
+function shopGridTarget(actions, current, direction, tab) {
+  const listing = current?.closest('.shop-listing');
+  if (!listing) return actions[0];
+  const rows = [...$('shop-items').querySelectorAll('.shop-listing:not([hidden])')]
+    .map(row => actions.filter(button => row.contains(button)));
+  const row = rows.findIndex(buttons => buttons.includes(current));
+  if (row < 0) return actions[0];
+  const column = rows[row].indexOf(current);
+  switch (direction) {
+    case 'KeyA': return rows[row][column - 1];
+    case 'KeyD': return rows[row][column + 1];
+    case 'KeyW': return row === 0 ? tab : rows[row - 1][column];
+    case 'KeyS': return rows[row + 1]?.[column];
+  }
+}
+
+function handleMenuKey(event, menu) {
+  const direction = directions[event.code];
+  const tabs = menuTabs(menu);
+  const currentTab = tabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+  const current = document.activeElement;
+  const onTab = tabs.includes(current);
+  if (onTab && (direction === 'KeyA' || direction === 'KeyD' ||
+    event.code === 'Home' || event.code === 'End')) {
+    event.preventDefault();
+    const next = event.code === 'Home' ? tabs[0] : event.code === 'End' ? tabs.at(-1)
+      : stepFocus(tabs, current, direction === 'KeyA' ? -1 : 1);
+    selectPanelTab(next);
+  } else if (direction) {
+    event.preventDefault();
+    const actions = menuActions(menu);
+    if (onTab) {
+      if (direction === 'KeyS') focusMenu(menu, currentTab);
+      return;
+    }
+    if (currentTab?.id === 'tab-shop-buy') {
+      shopGridTarget(actions, current, direction, currentTab)?.focus();
+      return;
+    }
+    const vertical = direction === 'KeyW' || direction === 'KeyS';
+    if (tabs.length && !vertical) return;
+    const previous = direction === 'KeyW' || direction === 'KeyA';
+    if (currentTab && previous && (current === actions[0] || !actions.length)) {
+      currentTab.focus();
+    } else if (actions.length) {
+      stepFocus(actions, current, previous ? -1 : 1)?.focus();
+    }
+  } else if (event.code === 'KeyE' || event.code === 'Enter' || event.code === 'Space') {
+    event.preventDefault();
+    if (event.repeat || busy) return;
+    if (current instanceof HTMLButtonElement && menu.contains(current) && !current.disabled && !onTab) {
+      if (current.getAttribute('aria-disabled') !== 'true') current.click();
+    } else {
+      focusMenu(menu, currentTab);
+    }
+  }
+}
+
+seedToggle.onclick = () => togglePanel(seedToggle, seedPicker, $('seed-heading'));
+panelToggle.onclick = () => togglePanel(panelToggle, panel, $('panel-close'));
+menuToggle.onclick = () => togglePanel(menuToggle, gameMenu, $('game-menu-heading'));
+for (const id of ['panel-close', 'seed-close', 'shop-close', 'barn-close', 'menu-close']) {
   $(id).onclick = () => closePanel();
 }
 
 window.addEventListener('keydown', event => {
   if (event.code === 'Escape' && panelOpener) {
+    event.preventDefault();
     closePanel();
     return;
   }
   if (!farm || event.ctrlKey || event.metaKey || event.altKey ||
       event.target.closest('input,textarea,[contenteditable]')) return;
+  const shortcut = {KeyQ: seedToggle, KeyI: panelToggle, KeyM: menuToggle}[event.code];
+  if (shortcut) {
+    event.preventDefault();
+    if (!event.repeat) shortcut.click();
+    return;
+  }
+  const menu = visibleMenu();
+  if (menu) {
+    handleMenuKey(event, menu);
+    return;
+  }
   if (event.code === 'KeyE') {
     event.preventDefault();
     if (!event.repeat) interact();
@@ -342,7 +441,17 @@ function remaining(plant) {
 
 function mapDistance(target, point = position) {
   const {width, height} = farm.layout;
-  return Math.hypot(point.x * width - target.x, point.y * height - target.y);
+  const x = point.x * width;
+  const y = point.y * height;
+  if (target.building) {
+    const building = farm.layout.obstacles.find(item => item.kind === target.building);
+    if (building) {
+      const dx = Math.max(building.x - x, 0, x - building.x - building.w);
+      const dy = Math.max(building.y - y, 0, y - building.y - building.h);
+      return Math.hypot(dx, dy);
+    }
+  }
+  return Math.hypot(x - target.x, y - target.y);
 }
 
 function total(contents) {
@@ -363,21 +472,43 @@ function atShop() {
   return mapDistance(shopDoor) <= shopDoor.reach;
 }
 
+function atWell() {
+  const {well} = farm.layout;
+  return mapDistance(well) <= well.reach;
+}
+
+function waterCapacity() {
+  return farm.layout.toolTiers.can[farm.tools.can].capacity;
+}
+
 function interact() {
-  if (atShop()) {
+  if (atWell()) {
+    run(async () => {
+      if (farm.water >= waterCapacity()) {
+        message('Krhla je plná.');
+        return;
+      }
+      if (await actAtPosition({action: 'refill-water'})) message('Krhla je naplnená.');
+    });
+  } else if (atShop()) {
     if (!shopPanel.hidden) return;
     closePanel(false);
     panelOpener = workButton;
+    keys.clear();
     shopPanel.hidden = false;
     workButton.setAttribute('aria-expanded', 'true');
     selectPanelTab($('tab-shop-buy'));
   } else if (atBarn()) {
-    if (total(farm.bag)) workBarn('deposit');
-    else if (total(farm.barn)) workBarn('sell');
-    else message('Stodola je prázdna.');
+    togglePanel(workButton, barnPanel, $('barn-heading'));
   } else {
     workPlot(nearestPlot);
   }
+}
+
+function plotAction(plot) {
+  if (plot?.crop) return remaining(plot) ? null : 'harvest';
+  if (plot?.soil === 'spent') return 'hoe';
+  return plot?.soil === 'wet' || farm.weather.rain ? 'plant' : 'water';
 }
 
 function updateTarget() {
@@ -398,32 +529,54 @@ function updateTarget() {
   }
 
   const plant = farm.plots[target];
-  const growing = Boolean(plant && remaining(plant));
+  const action = target < 0 ? null : plotAction(plant);
   const nearBarn = atBarn();
   const nearShop = atShop();
-  if (!nearShop && !shopPanel.hidden) closePanel();
-  const noSeeds = !plant && !farm.seeds[selected];
+  const nearWell = atWell();
+  if ((!nearShop && !shopPanel.hidden) || (!nearBarn && !barnPanel.hidden)) closePanel();
+  const noSeeds = action === 'plant' && !farm.seeds[selected];
+  const noWater = action === 'water' && !farm.water;
   const hasBag = total(farm.bag) > 0;
   const hasStock = total(farm.barn) > 0;
   const value = stockValue(farm.barn);
-  const label = pendingPlot ? pendingPlot.label : nearShop ? 'E · Otvoriť obchod' : nearBarn
-    ? (hasBag ? 'E · Uložiť úrodu' : hasStock ? 'E · Predať úrodu za ' + value + ' 🪙' : 'Stodola je prázdna')
-    : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : growing
+  const label = pendingPlot ? pendingPlot.label : nearWell ? (farm.water < waterCapacity() ? 'E · Naplniť krhlu' : 'Krhla je plná') : nearShop ? 'E · Otvoriť obchod' : nearBarn
+    ? (farm.order.ready ? 'E · Objednávka je pripravená' : 'E · Otvoriť stodolu')
+    : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : !action
       ? crops[plant.crop].name + ' dozrieva'
-      : noSeeds ? 'Semienka kúpiš v obchode' : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
+      : noWater ? 'Krhla je prázdna · choď k studni' : noSeeds ? 'Semienka kúpiš v obchode'
+        : 'E · ' + fieldActions[action].label + (action === 'plant' ? ' (' + crops[selected].name + ')' : '');
   if (workButton.textContent !== label) workButton.textContent = label;
-  workButton.disabled = busy || (!nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
-  depositButton.disabled = busy || !nearBarn || !hasBag;
-  sellButton.disabled = busy || !nearBarn || !hasStock;
-  const sellLabel = hasStock ? 'Predať za ' + value + ' 🪙' : 'Predať úrodu';
+  workButton.disabled = busy || (nearWell ? farm.water >= waterCapacity()
+    : !nearShop && !nearBarn && (!action || noSeeds || noWater));
+  const showAction = !visibleMenu() && (pendingPlot || !workButton.disabled);
+  avatarAction.hidden = !showAction;
+  if (showAction && avatarAction.textContent !== label) avatarAction.textContent = label;
+  depositButton.setAttribute('aria-disabled', String(busy || !nearBarn || !hasBag));
+  sellButton.setAttribute('aria-disabled', String(busy || !nearBarn || !hasStock));
+  orderButton.setAttribute('aria-disabled', String(busy || !nearBarn || !farm.order.ready));
+  const sellLabel = hasStock ? 'Predať celý sklad za ' + value + ' 🪙' : 'Predať celý sklad';
   if (sellButton.textContent !== sellLabel) sellButton.textContent = sellLabel;
   const wheelbarrowLabel = farm.wheelbarrow ? 'Fúrik zakúpený'
     : 'Kúpiť fúrik za ' + farm.layout.wheelbarrow.cost + ' 🪙';
   if (wheelbarrowButton.textContent !== wheelbarrowLabel) wheelbarrowButton.textContent = wheelbarrowLabel;
   wheelbarrowButton.disabled = busy || !nearShop || farm.wheelbarrow || farm.coins < farm.layout.wheelbarrow.cost;
+  for (const [id, tool] of Object.entries(soilTools)) {
+    const level = farm.tools[id];
+    const tiers = farm.layout.toolTiers[id];
+    const next = tiers[level + 1];
+    const button = $('upgrade-' + id);
+    const title = tool.icon + ' ' + tool.name + (next ? ' · úroveň ' + (level + 1) + ' za ' + next.cost + ' 🪙' : ' · maximum');
+    const details = 'Úroveň ' + level + ' · až ' + tiers[level].limit + ' záhonov naraz' + (id === 'can' ? ' · ' + tiers[level].capacity + ' dávok' : '');
+    if (button.textContent !== title) button.textContent = title;
+    if ($(id + '-tier').textContent !== details) $(id + '-tier').textContent = details;
+    button.disabled = busy || !nearShop || !next || farm.coins < next.cost;
+  }
   for (const {button, cost, quantity} of shopButtons) {
     button.hidden = quantity === 10 && !farm.shopExpanded;
-    button.disabled = busy || !nearShop || farm.coins < cost;
+    const unavailable = String(busy || !nearShop || farm.coins < cost);
+    if (button.getAttribute('aria-disabled') !== unavailable) {
+      button.setAttribute('aria-disabled', unavailable);
+    }
   }
   const shopLabel = farm.shopExpanded ? 'Obchod rozšírený' : 'Rozšíriť obchod za ' + farm.layout.shopExpansionCost + ' 🪙';
   const southLabel = farm.southOpen ? 'Južné pole otvorené' : 'Obnoviť bránu za ' + farm.layout.southGate.cost + ' 🪙';
@@ -437,9 +590,13 @@ function updateTarget() {
   const bagValue = stockValue(farm.bag);
   const bagLabel = bagValue ? 'Predať úrodu za ' + bagValue + ' 🪙' : 'Predať úrodu z batoha';
   if (sellBagButton.textContent !== bagLabel) sellBagButton.textContent = bagLabel;
-  sellBagButton.disabled = busy || !nearShop || !hasBag;
-  $('terrain').querySelector('.barn-entrance').classList.toggle('in-reach', nearBarn);
-  $('terrain').querySelector('.shop-entrance').classList.toggle('in-reach', nearShop);
+  const saleUnavailable = String(busy || !nearShop || !hasBag);
+  if (sellBagButton.getAttribute('aria-disabled') !== saleUnavailable) {
+    sellBagButton.setAttribute('aria-disabled', saleUnavailable);
+  }
+  $('terrain').querySelector('.terrain.barn').classList.toggle('in-reach', nearBarn);
+  $('terrain').querySelector('.terrain.shop').classList.toggle('in-reach', nearShop);
+  $('terrain').querySelector('.terrain.well').classList.toggle('in-reach', nearWell);
 }
 
 async function actAtPosition(payload) {
@@ -459,16 +616,21 @@ function workPlot(index) {
       return;
     }
     const plant = farm.plots[index];
-    if (plant && remaining(plant)) {
+    const action = plotAction(plant);
+    if (!action) {
       message('Úroda ešte dozrieva.');
       return;
     }
-    if (!plant && !farm.seeds[selected]) {
+    if (action === 'water' && !farm.water) {
+      message('Krhla je prázdna. Naplň ju pri studni.');
+      return;
+    }
+    if (action === 'plant' && !farm.seeds[selected]) {
       message('Toto semienko najprv kúp v obchode.');
       return;
     }
     const button = $('plots').children[index];
-    pendingPlot = {label: plant ? 'Zbieram…' : 'Sadím…'};
+    pendingPlot = {label: fieldActions[action].pending};
     button.classList.add('pending');
     button.setAttribute('aria-busy', 'true');
     workButton.textContent = pendingPlot.label;
@@ -476,9 +638,9 @@ function workPlot(index) {
     try {
       const data = await actAtPosition({
         plot: index, crop: selected, planted: plant?.planted,
-        action: plant ? 'harvest' : 'plant',
+        action,
       });
-      if (data && plant) message('Úroda je v inventári. Odnes ju do stodoly.');
+      if (data && action === 'harvest') message('Úroda je v batohu. Predaj ju v obchode alebo odnes do stodoly.');
     } finally {
       pendingPlot = null;
       button.classList.remove('pending');
@@ -493,9 +655,11 @@ function workBarn(action) {
       message('Najprv pristúp k dverám stodoly.');
       return;
     }
-    const data = await actAtPosition({action});
+    const order = farm.order.id;
+    const data = await actAtPosition({action, order});
     if (data) {
       const notices = {
+        'fulfill-order': 'Objednávka je odovzdaná. V stodole čaká ďalšia.',
         deposit: 'Úroda je v spoločnej stodole.',
         sell: 'Úroda je predaná. Mince pribudli do pokladnice.',
       };
@@ -505,8 +669,11 @@ function workBarn(action) {
 }
 
 workButton.onclick = interact;
-depositButton.onclick = () => workBarn('deposit');
-sellButton.onclick = () => workBarn('sell');
+for (const [button, action] of [[orderButton, 'fulfill-order'], [depositButton, 'deposit'], [sellButton, 'sell']]) {
+  button.onclick = () => {
+    if (button.getAttribute('aria-disabled') !== 'true') workBarn(action);
+  };
+}
 
 
 function buyExpansion(action, notice) {
@@ -521,7 +688,19 @@ function buyExpansion(action, notice) {
 
 wheelbarrowButton.onclick = () => buyExpansion('buy-wheelbarrow', 'Fúrik je váš. Každý hráč teraz unesie 12 kusov úrody.');
 eastExpansion.onclick = () => buyExpansion('open-east', 'Východné pole je otvorené.');
-sellBagButton.onclick = () => buyExpansion('sell-bag', 'Úroda z batoha je predaná. Mince pribudli do pokladnice.');
+sellBagButton.onclick = () => {
+  if (sellBagButton.getAttribute('aria-disabled') === 'true') return;
+  buyExpansion('sell-bag', 'Úroda z batoha je predaná. Mince pribudli do pokladnice.');
+};
+for (const [id, tool] of Object.entries(soilTools)) {
+  $('upgrade-' + id).onclick = () => run(async () => {
+    if (!atShop()) return;
+    const level = farm.tools[id] + 1;
+    if (await actAtPosition({action: 'upgrade-tool', tool: id, level})) {
+      message(tool.name + ' má teraz úroveň ' + level + '.');
+    }
+  });
+}
 shopExpansion.onclick = () => buyExpansion('expand-shop', 'Obchod teraz predáva zemiaky, jahody a balenia po 10 kusov.');
 southExpansion.onclick = () => buyExpansion('open-south', 'Južné pole je otvorené. V obchode kúpiš tekvice.');
 
@@ -581,12 +760,29 @@ function renderInventory() {
   const empty = document.createElement('li');
   empty.className = 'stock-empty';
   empty.textContent = 'Stodola je prázdna.';
-  $('stock-items').replaceChildren(...(stock.length ? stock.map(id => cargoItem(id, farm.barn[id])) : [empty]));
+  const stockRows = stock.length ? stock.map(id => cargoItem(id, farm.barn[id])) : [empty];
+  $('stock-items').replaceChildren(...stockRows);
+  $('barn-stock').replaceChildren(...stockRows.map(row => row.cloneNode(true)));
   const bagEmpty = document.createElement('li');
   bagEmpty.className = 'stock-empty';
   bagEmpty.textContent = 'Batoh je prázdny.';
   const bagRows = Object.keys(crops).filter(id => farm.bag[id]).map(id => cargoItem(id, farm.bag[id]));
   $('shop-bag').replaceChildren(...(bagRows.length ? bagRows : [bagEmpty]));
+}
+
+function renderOrder() {
+  const order = farm.order;
+  const signature = JSON.stringify([order.id, order.progress]);
+  if (orderView === signature) return;
+  orderView = signature;
+  $('order-name').textContent = order.name;
+  orderButton.textContent = 'Odovzdať za ' + order.reward + ' 🪙';
+  $('order-progress').replaceChildren(...Object.entries(order.crops).map(([id, required]) => {
+    const amount = order.progress[id];
+    const row = cargoItem(id, amount + ' / ' + required);
+    row.classList.toggle('complete', amount === required);
+    return row;
+  }));
 }
 
 function render() {
@@ -603,16 +799,33 @@ function render() {
     if (summary.textContent !== label) summary.textContent = label;
   }
   renderInventory();
-  farm.plots.forEach((plant, index) => {
+  renderOrder();
+  const water = $('water');
+  const waterText = '💧 ' + farm.water + '/' + waterCapacity();
+  if (water.textContent !== waterText) {
+    water.textContent = waterText;
+    water.setAttribute('aria-label', 'Voda v krhle: ' + farm.water + ' z ' + waterCapacity());
+  }
+  water.classList.toggle('empty', !farm.water);
+  const rain = farm.weather.rain;
+  field.classList.toggle('raining', rain);
+  const weather = $('weather');
+  const weatherText = rain ? '🌧 Dážď' : '☀ Sucho';
+  if (weather.textContent !== weatherText) weather.textContent = weatherText;
+  farm.plots.forEach((plot, index) => {
     const button = $('plots').children[index];
-    const seconds = plant ? remaining(plant) : 0;
-    const crop = plant ? crops[plant.crop] : crops[selected];
-    button.classList.toggle('ready', Boolean(plant && !seconds));
-    button.classList.toggle('planted', Boolean(plant));
-    button.firstElementChild.textContent = plant ? (seconds ? '🌱' : crop.icon) : '';
-    button.lastElementChild.textContent = plant ? (seconds ? seconds + ' s' : 'Zožať') : 'Zasadiť';
-    const label = plant ? crop.name + (seconds ? ', dozrieva' : ', zožať') : 'zasadiť ' + crop.name;
-    button.setAttribute('aria-label', 'Záhon ' + (index + 1) + ', ' + label);
+    const planted = Boolean(plot?.crop);
+    const seconds = planted ? remaining(plot) : 0;
+    const action = plotAction(plot);
+    button.classList.toggle('ready', action === 'harvest');
+    button.classList.toggle('planted', planted);
+    button.classList.toggle('spent', action === 'hoe');
+    button.classList.toggle('wet', !planted && action === 'plant');
+    button.firstElementChild.textContent = planted ? (seconds ? '🌱' : crops[plot.crop].icon)
+      : action === 'hoe' ? '🍂' : action === 'plant' ? '💧' : '';
+    const label = seconds ? seconds + ' s' : fieldActions[action].label;
+    button.lastElementChild.textContent = label;
+    button.setAttribute('aria-label', 'Záhon ' + (index + 1) + ', ' + (planted ? crops[plot.crop].name + ' · ' : '') + label);
   });
 }
 
@@ -666,10 +879,12 @@ for (const [id, crop] of Object.entries(crops)) {
     const cost = crop.cost * quantity;
     const buy = document.createElement('button');
     buy.type = 'button';
-    buy.disabled = true;
+    buy.setAttribute('aria-disabled', 'true');
     buy.textContent = quantity + ' ks · ' + cost + ' 🪙';
     buy.setAttribute('aria-label', 'Kúpiť ' + quantity + ' ks: ' + crop.name + ' za ' + cost + ' mincí');
-    buy.onclick = () => buySeed(id, quantity);
+    buy.onclick = () => {
+      if (buy.getAttribute('aria-disabled') !== 'true') buySeed(id, quantity);
+    };
     listing.append(buy);
     shopButtons.push({button: buy, cost, quantity});
   }
