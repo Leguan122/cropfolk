@@ -53,6 +53,11 @@
       </div>
     </div>
 
+    <div id="tutorial" class="tutorial-strip" role="status" hidden>
+      <span id="tutorial-number"></span>
+      <span id="tutorial-text"></span>
+    </div>
+
     <aside id="seed-picker" class="farm-panel seed-picker" aria-labelledby="seed-heading" hidden>
       <div class="panel-header">
         <h2 id="seed-heading" tabindex="-1">Aktívne semienko</h2>
@@ -81,6 +86,7 @@
         </section>
         <section id="pane-shop-upgrade" role="tabpanel" aria-labelledby="tab-shop-upgrade" hidden>
           <div class="shop-upgrades">
+            <section id="irrigation-upgrades" aria-label="Závlaha"></section>
             <div><button type="button" id="upgrade-hoe" disabled>Motyka</button><p id="hoe-tier" class="inventory-help"></p></div>
             <div><button type="button" id="upgrade-can" disabled>Krhla</button><p id="can-tier" class="inventory-help"></p></div>
             <div><button type="button" id="buy-wheelbarrow" disabled>Fúrik</button><p class="inventory-help">Zväčší batoh všetkým hráčom na 12 kusov.</p></div>
@@ -144,6 +150,7 @@
         <p>Kód farmy <strong id="code"></strong></p>
         <button type="button" id="share">Skopírovať odkaz</button>
         <input id="invite-link" aria-label="Odkaz na farmu" readonly hidden>
+        <button type="button" class="quiet" id="tutorial-toggle">Preskočiť zaučenie</button>
         <button type="button" class="quiet" id="leave">Späť do úvodnej obrazovky</button>
       </div>
       <p class="menu-keys">W/S výber · E potvrdiť · Esc zavrieť</p>
@@ -158,7 +165,7 @@
           <button type="button" data-key="KeyS" aria-label="Dole">▼</button>
           <button type="button" data-key="KeyD" aria-label="Vpravo">▶</button>
         </div>
-        <button type="button" id="work-plot" disabled>Pristúp k záhonu</button>
+        <button type="button" id="work-plot" disabled hidden></button>
         <p class="key-hint"><kbd>WASD</kbd> pohyb <kbd>E</kbd> akcia <kbd>Q</kbd> semienka <kbd>I</kbd> batoh <kbd>M</kbd> menu</p>
       </div>
     </div>

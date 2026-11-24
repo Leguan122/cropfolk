@@ -41,6 +41,9 @@ let orderView = '';
 const seedToggle = $('seed-toggle');
 const panelToggle = $('panel-toggle');
 const gameMenu = $('game-menu');
+const tutorial = $('tutorial');
+const tutorialToggle = $('tutorial-toggle');
+let tutorialHidden = false;
 const menuToggle = $('menu-toggle');
 let panelOpener = null;
 const sellButton = $('sell-stock');
@@ -48,6 +51,7 @@ const depositButton = $('deposit-stock');
 const tabLists = [...document.querySelectorAll('.panel-tabs')];
 const wheelbarrowButton = $('buy-wheelbarrow');
 const shopButtons = [];
+const irrigationButtons = [];
 const soilTools = {hoe: {name: 'Motyka', icon: '⛏'}, can: {name: 'Krhla', icon: '💧'}};
 const fieldActions = {
   hoe: {label: 'Obrobiť motykou', pending: 'Obrábam…'},
@@ -157,6 +161,16 @@ function renderMap(map) {
     door.textContent = label;
     $('terrain').append(door);
   }
+  map.irrigation.fields.forEach(({valve}, index) => {
+    const marker = document.createElement('div');
+    marker.className = 'barn-door irrigation-valve';
+    marker.id = 'irrigation-valve-' + index;
+    marker.style.left = valve.x + 'px';
+    marker.style.top = valve.y + 'px';
+    marker.textContent = 'Ventil';
+    marker.hidden = true;
+    $('terrain').append(marker);
+  });
   const plots = $('plots');
   while (plots.children.length > map.plots.length) plots.lastElementChild.remove();
   map.plots.forEach(({x, y}, index) => {
@@ -342,13 +356,22 @@ for (const id of ['panel-close', 'seed-close', 'shop-close', 'barn-close', 'menu
 }
 
 window.addEventListener('keydown', event => {
-  if (event.code === 'Escape' && panelOpener) {
+  const closeShortcut = event.code === 'Escape' ||
+    (event.code === 'KeyQ' && !event.ctrlKey && !event.metaKey && !event.altKey);
+  if (closeShortcut && panelOpener) {
     event.preventDefault();
-    closePanel();
+    if (!event.repeat) closePanel();
     return;
   }
   if (!farm || event.ctrlKey || event.metaKey || event.altKey ||
       event.target.closest('input,textarea,[contenteditable]')) return;
+  if (farm.testCoins && event.code === 'KeyC' && event.shiftKey) {
+    event.preventDefault();
+    if (!event.repeat) run(async () => {
+      if (await actAtPosition({action: 'test-coins'})) message('Testovacie mince: +250.');
+    });
+    return;
+  }
   const shortcut = {KeyQ: seedToggle, KeyI: panelToggle, KeyM: menuToggle}[event.code];
   if (shortcut) {
     event.preventDefault();
@@ -421,6 +444,10 @@ function open(data) {
   generation++;
   nearestPlot = -1;
   $('plots').querySelector('.in-reach')?.classList.remove('in-reach');
+  tutorialHidden = false;
+  try {
+    tutorialHidden = localStorage.getItem('cropfolk-tutorial-' + data.code) === 'hidden';
+  } catch {}
   const {width, height, spawn} = data.layout;
   position = {x: (spawn.x + Math.random() * 60 - 30) / width, y: spawn.y / height};
   sentPosition = null;
@@ -481,14 +508,40 @@ function waterCapacity() {
   return farm.layout.toolTiers.can[farm.tools.can].capacity;
 }
 
+function hasIrrigation(index) {
+  return Boolean(farm.irrigation.mask & (1 << index));
+}
+
+function hasAutomaticIrrigation(index) {
+  return Boolean(farm.irrigation.autoMask & (1 << index));
+}
+
+function nearbyValve() {
+  return farm.layout.irrigation.fields.findIndex(({valve}, index) =>
+    hasIrrigation(index) && !hasAutomaticIrrigation(index) && mapDistance(valve) <= valve.reach);
+}
+
+function fieldNeedsWater(index) {
+  const {columns, rows} = farm.layout.fieldGrid;
+  const size = columns * rows;
+  return farm.plots.slice(index * size, (index + 1) * size).some(plot => plot === null);
+}
+
 function interact() {
-  if (atWell()) {
+  const valve = nearbyValve();
+  if (valve >= 0 && !farm.weather.rain && fieldNeedsWater(valve)) {
+    run(async () => {
+      if (await actAtPosition({action: 'irrigate', field: valve})) message('Pole je zavlažené.');
+    });
+  } else if (atWell()) {
     run(async () => {
       if (farm.water >= waterCapacity()) {
         message('Krhla je plná.');
         return;
       }
-      if (await actAtPosition({action: 'refill-water'})) message('Krhla je naplnená.');
+      if (await actAtPosition({action: 'refill-water'})) {
+        message('Krhla je naplnená.');
+      }
     });
   } else if (atShop()) {
     if (!shopPanel.hidden) return;
@@ -539,15 +592,20 @@ function updateTarget() {
   const hasBag = total(farm.bag) > 0;
   const hasStock = total(farm.barn) > 0;
   const value = stockValue(farm.barn);
-  const label = pendingPlot ? pendingPlot.label : nearWell ? (farm.water < waterCapacity() ? 'E · Naplniť krhlu' : 'Krhla je plná') : nearShop ? 'E · Otvoriť obchod' : nearBarn
+  const valve = nearbyValve();
+  const refill = farm.water < waterCapacity();
+  const valveReady = valve >= 0 && !farm.weather.rain && fieldNeedsWater(valve);
+  const label = pendingPlot ? pendingPlot.label : valveReady ? 'E · Zavlažiť pole'
+    : nearWell ? (refill ? 'E · Naplniť krhlu' : 'Krhla je plná') : nearShop ? 'E · Otvoriť obchod' : nearBarn
     ? (farm.order.ready ? 'E · Objednávka je pripravená' : 'E · Otvoriť stodolu')
-    : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : !action
+    : target < 0 ? '' : !action
       ? crops[plant.crop].name + ' dozrieva'
       : noWater ? 'Krhla je prázdna · choď k studni' : noSeeds ? 'Semienka kúpiš v obchode'
         : 'E · ' + fieldActions[action].label + (action === 'plant' ? ' (' + crops[selected].name + ')' : '');
+  workButton.hidden = !label;
   if (workButton.textContent !== label) workButton.textContent = label;
-  workButton.disabled = busy || (nearWell ? farm.water >= waterCapacity()
-    : !nearShop && !nearBarn && (!action || noSeeds || noWater));
+  workButton.disabled = busy || (!valveReady && (nearWell ? !refill
+    : !nearShop && !nearBarn && (!action || noSeeds || noWater)));
   const showAction = !visibleMenu() && (pendingPlot || !workButton.disabled);
   avatarAction.hidden = !showAction;
   if (showAction && avatarAction.textContent !== label) avatarAction.textContent = label;
@@ -570,6 +628,25 @@ function updateTarget() {
     if (button.textContent !== title) button.textContent = title;
     if ($(id + '-tier').textContent !== details) $(id + '-tier').textContent = details;
     button.disabled = busy || !nearShop || !next || farm.coins < next.cost;
+  }
+  for (const [index, item] of farm.layout.irrigation.fields.entries()) {
+    const button = irrigationButtons[index];
+    const installed = hasIrrigation(index);
+    const automatic = hasAutomaticIrrigation(index);
+    const marker = $('irrigation-valve-' + index);
+    marker.hidden = !installed;
+    marker.classList.toggle('in-reach', valveReady && valve === index);
+    marker.classList.toggle('automatic', automatic);
+    const markerLabel = automatic ? 'Automatická závlaha' : 'Ventil';
+    if (marker.textContent !== markerLabel) marker.textContent = markerLabel;
+    const cost = installed ? item.upgradeCost : item.cost;
+    const detail = automatic ? 'úroveň 2 · automatická'
+      : (installed ? 'vylepšiť na úroveň 2' : 'kúpiť ventil') + ' za ' + cost + ' 🪙';
+    const label = item.name + ' · ' + detail;
+    if (button.textContent !== label) button.textContent = label;
+    const unlocked = farm.eastOpen && (index !== 2 || farm.southOpen);
+    const disabled = String(busy || !nearShop || !unlocked || automatic || farm.coins < cost);
+    if (button.getAttribute('aria-disabled') !== disabled) button.setAttribute('aria-disabled', disabled);
   }
   for (const {button, cost, quantity} of shopButtons) {
     button.hidden = quantity === 10 && !farm.shopExpanded;
@@ -785,6 +862,44 @@ function renderOrder() {
   }));
 }
 
+function renderTutorial() {
+  const {step, stored} = farm.tutorial;
+  const active = !tutorialHidden && step < 4;
+  tutorial.hidden = !active;
+  tutorialToggle.hidden = step >= 4;
+  const toggleLabel = tutorialHidden ? 'Zobraziť zaučenie' : 'Preskočiť zaučenie';
+  if (tutorialToggle.textContent !== toggleLabel) tutorialToggle.textContent = toggleLabel;
+
+  const scene = $('terrain');
+  const carrying = (farm.bag.radish ?? 0) > 0;
+  const target = active ? ['shop', 'west', carrying ? 'barn' : 'west', 'barn'][step] : '';
+  for (const kind of ['shop', 'west', 'barn']) {
+    scene.querySelector('.terrain.' + kind).classList.toggle('tutorial-target', target === kind);
+  }
+  if (!active) return;
+
+  const steps = [
+    'Pri obchode stlač E a kúp aspoň 4 semienka reďkovky.',
+    farm.weather.rain ? 'Prší. Vyber reďkovku cez Q a zasaď ju klávesom E.' : 'Vyber reďkovku cez Q. Pri záhone stlač E na polievanie a potom na výsadbu.',
+    'Zožni reďkovky a ulož ich do stodoly (' + stored + '/4).',
+    'Pri stodole stlač E a odovzdaj prvú objednávku.',
+  ];
+  const number = (step + 1) + '/4';
+  if ($('tutorial-number').textContent !== number) $('tutorial-number').textContent = number;
+  if ($('tutorial-text').textContent !== steps[step]) $('tutorial-text').textContent = steps[step];
+}
+
+tutorialToggle.onclick = () => {
+  if (!farm) return;
+  tutorialHidden = !tutorialHidden;
+  try {
+    const key = 'cropfolk-tutorial-' + farm.code;
+    if (tutorialHidden) localStorage.setItem(key, 'hidden');
+    else localStorage.removeItem(key);
+  } catch {}
+  renderTutorial();
+};
+
 function render() {
   if (!farm) return;
   $('coins').textContent = '🪙 ' + farm.coins;
@@ -800,6 +915,7 @@ function render() {
   }
   renderInventory();
   renderOrder();
+  renderTutorial();
   const water = $('water');
   const waterText = '💧 ' + farm.water + '/' + waterCapacity();
   if (water.textContent !== waterText) {
@@ -890,6 +1006,30 @@ for (const [id, crop] of Object.entries(crops)) {
   }
   $('shop-items').append(listing);
 }
+const irrigationSection = $('irrigation-upgrades');
+const irrigationHeading = document.createElement('h2');
+irrigationHeading.textContent = 'Závlaha';
+const irrigationHelp = document.createElement('p');
+irrigationHelp.className = 'inventory-help';
+irrigationHelp.textContent = 'Po odomknutí východného poľa môžeš kúpiť ventil. Úroveň 2 automaticky polieva obrobené záhony.';
+irrigationSection.append(irrigationHeading, irrigationHelp);
+for (let index = 0; index < 3; index++) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.setAttribute('aria-disabled', 'true');
+  button.onclick = () => {
+    if (button.getAttribute('aria-disabled') === 'true' || !atShop()) return;
+    run(async () => {
+      const level = hasIrrigation(index) ? 2 : 1;
+      if (await actAtPosition({action: 'buy-irrigation', field: index, level})) {
+        message(level === 2 ? 'Pole sa teraz zavlažuje automaticky.' : 'Ventil je nainštalovaný. Použi ho pri poli.');
+      }
+    });
+  };
+  irrigationSection.append(button);
+  irrigationButtons.push(button);
+}
+
 function addPlot(index) {
   const button = document.createElement('button');
   button.type = 'button';

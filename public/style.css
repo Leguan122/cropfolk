@@ -123,7 +123,7 @@ button.hud-chip{pointer-events:auto}
 .screen-controls button{pointer-events:auto}
 .screen-controls .direction-pad{justify-self:start}
 .screen-controls #work-plot{width:auto;min-height:44px;margin:0;box-shadow:0 3px 10px #1f271b55}
-.key-hint{justify-self:end;font-size:.85rem;background:#273e30;color:#fff9e8;border-radius:10px;padding:8px 10px;white-space:nowrap}
+.key-hint{grid-column:3;justify-self:end;font-size:.85rem;background:#273e30;color:#fff9e8;border-radius:10px;padding:8px 10px;white-space:nowrap}
 .key-hint kbd{font:700 .8rem system-ui;border:1px solid #98ac94;border-radius:4px;padding:1px 4px}
 .game-message{width:fit-content;max-width:min(520px,100%);margin:0 auto 8px;color:#fff9e8;background:#273e30;border:1px solid #78966f;border-radius:10px;padding:7px 12px;text-align:center}
 .game-message:empty{display:none}
@@ -226,3 +226,16 @@ button.hud-chip{pointer-events:auto}
 #order-progress .complete{background:#e5edcd}
 #barn-panel button[aria-disabled=true]{background:#ece4ce;color:#625b48;cursor:default}
 #barn-panel button[aria-disabled=true]:hover{filter:none}
+
+.tutorial-strip{position:absolute;z-index:2;top:max(68px,calc(env(safe-area-inset-top) + 54px));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;width:max-content;max-width:calc(100% - 28px);padding:7px 10px;border:1px solid #dfca89;border-radius:8px;background:#273e30ef;color:#fff7dc;font-size:.875rem;pointer-events:none}
+#tutorial-number{background:#f7c76c;color:#302817;border-radius:5px;padding:2px 6px;font-weight:750;white-space:nowrap}
+.terrain.tutorial-target{outline:2px dashed #fff0a9;outline-offset:4px}
+@media(max-width:560px){.tutorial-strip{top:98px;max-width:calc(100% - 24px);font-size:.8rem}}
+
+.irrigation-valve{background:#316870}
+#irrigation-upgrades{display:grid;gap:6px}
+#irrigation-upgrades h2,#irrigation-upgrades p{margin:0}
+#irrigation-upgrades button{text-align:left}
+#irrigation-upgrades button[aria-disabled=true]{background:#ece4ce;color:#625b48;cursor:default}
+
+.irrigation-valve.automatic{background:#325a41;border:1px solid #aac082}

@@ -10,6 +10,7 @@ foreach ([164, 724] as $left) {
 }
 
 return [
+    'testCoins' => (bool) env('CROPFOLK_TEST_COINS', false),
     'width' => 1152,
     'height' => 1120,
     'closedHeight' => 756,
@@ -21,6 +22,13 @@ return [
         ['name' => 'Zeleninový košík', 'crops' => ['radish' => 4, 'carrot' => 4, 'corn' => 1], 'reward' => 110],
     ],
     'weather' => ['period' => 180000, 'rain' => 32000],
+    'irrigation' => [
+        'fields' => [
+            ['name' => 'Západné pole', 'cost' => 60, 'upgradeCost' => 45, 'valve' => ['x' => 471, 'y' => 281, 'reach' => 31]],
+            ['name' => 'Východné pole', 'cost' => 75, 'upgradeCost' => 55, 'valve' => ['x' => 684, 'y' => 281, 'reach' => 31]],
+            ['name' => 'Južné pole', 'cost' => 90, 'upgradeCost' => 65, 'valve' => ['x' => 573, 'y' => 801, 'reach' => 31]],
+        ],
+    ],
     'well' => ['building' => 'well', 'x' => 487, 'y' => 680, 'reach' => 44],
     'fieldGrid' => ['columns' => 4, 'rows' => 2],
     'toolTiers' => [
