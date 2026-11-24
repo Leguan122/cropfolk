@@ -2,13 +2,13 @@
 
 Kooperatívna 2D farmárska hra v Laraveli 13. Na farme sa pohybuješ cez WASD, šípky alebo dotykové tlačidlá. Pristúp k záhonu a na jeho obrábanie stlač E, klikni na záhon v dosahu alebo použi tlačidlo pod mapou. Najbližší záhon v dosahu sa zvýrazní. Zo spoločného dvora vedie chodník k bránkam oboch polí. Kamera sleduje avatara a stodola aj ploty bránia prechodu.
 
-Po vstupe do hry mapa vyplní celé okno. Mince a vybrané semienka vidíš hore nad mapou. Tlačidlo Batoh otvorí zásoby. Aktívne semienko vyberieš vľavo hore. Pravý panel obsahuje iba zásoby, južnú bránu a pozvánky. Obchod otvoríš klávesom E pri jeho vchode a po odchode sa automaticky zavrie.
+Po vstupe do hry mapa vyplní celé okno. Mince a vybrané semienka vidíš hore nad mapou. Tlačidlo Batoh otvorí zásoby. Aktívne semienko vyberieš vľavo hore. Pravý panel obsahuje zásoby a pozvánky. Obchod otvoríš klávesom E pri jeho vchode a po odchode sa automaticky zavrie.
 
 Semienka kúpiš pri vchode do obchodu na západnej strane dvora. Stlač **E** a vyber jeden alebo päť kusov. Výsadba spotrebuje jedno semienko zo zásoby.
 
-Za 65 spoločných mincí rozšíriš obchod pri jeho vchode. Pribudnú balenia po 10 kusov, zemiaky s dvojitou úrodou a jahody, ktoré po prvom zbere raz dorastú. Po rozšírení obchodu môže tím za 110 mincí obnoviť južnú bránu. Za ňou je ďalších osem záhonov a druhý priechod vedie späť ku stodole. Obchod začne predávať tekvice.
+Nová farma začína s ôsmimi záhonmi na západnom poli. V obchode pod záložkou Vylepšenia odomkneš východné pole za 45 spoločných mincí a rozšíriš obchod za 65 mincí. Rozšírenie pridá nové semienka. Pribudnú balenia po 10 kusov, zemiaky s dvojitou úrodou a jahody, ktoré po prvom zbere raz dorastú. Po odomknutí východného poľa a rozšírení obchodu môže tím v obchode za 110 mincí obnoviť južnú bránu. Za ňou je ďalších osem záhonov a druhý priechod vedie späť ku stodole. Obchod začne predávať tekvice.
 
-Zrelá úroda ide najprv do osobného inventára (najviac osem kusov). Pri stodole môžeš za 40 spoločných mincí kúpiť fúrik, ktorý zvýši kapacitu všetkým na 12 kusov. Príď k dverám stodoly a stlač **E**, aby si ju uložil do spoločného skladu. Pri dverách môže ktorýkoľvek hráč predať celý sklad a pripísať mince do spoločnej pokladnice. Inventár zostáva k dispozícii po obnovení tej istej karty. Pozvánka pre kamarátov je dostupná priamo v hre.
+Zrelá úroda ide najprv do osobného inventára (najviac osem kusov). V obchode môžeš za 40 spoločných mincí kúpiť fúrik, ktorý zvýši kapacitu všetkým na 12 kusov. V obchode pod záložkou Predaj môžeš predať úrodu priamo zo svojho batoha. Príď k dverám stodoly a stlač **E**, aby si ju uložil do spoločného skladu. Pri dverách môže ktorýkoľvek hráč predať celý sklad a pripísať mince do spoločnej pokladnice. Inventár zostáva k dispozícii po obnovení tej istej karty. Pozvánka pre kamarátov je dostupná priamo v hre.
 
 ## Lokálny vývoj
 

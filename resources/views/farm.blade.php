@@ -60,13 +60,29 @@
 
     <aside id="shop-panel" class="farm-panel" aria-labelledby="shop-heading" hidden>
       <div class="panel-header">
-        <h2 id="shop-heading" tabindex="-1">Obchod so semienkami</h2>
+        <h2 id="shop-heading" tabindex="-1">Obchod</h2>
         <button type="button" id="shop-close" aria-label="Zavrieť obchod">×</button>
       </div>
+      <div class="panel-tabs" role="tablist" aria-label="Ponuka obchodu">
+        <button id="tab-shop-buy" type="button" role="tab" aria-controls="pane-shop-buy" aria-selected="true">Semienka</button>
+        <button id="tab-shop-sell" type="button" role="tab" aria-controls="pane-shop-sell" aria-selected="false" tabindex="-1">Predaj</button>
+        <button id="tab-shop-upgrade" type="button" role="tab" aria-controls="pane-shop-upgrade" aria-selected="false" tabindex="-1">Vylepšenia</button>
+      </div>
       <div class="panel-content">
-        <div id="shop-items"></div>
-        <button type="button" id="expand-shop" disabled>Rozšíriť obchod</button>
-        <p class="inventory-help">Rozšírenie odomkne zemiaky, jahody a balenia po 10 kusov.</p>
+        <section id="pane-shop-buy" role="tabpanel" aria-labelledby="tab-shop-buy"><div id="shop-items"></div></section>
+        <section id="pane-shop-sell" role="tabpanel" aria-labelledby="tab-shop-sell" hidden>
+          <h2>Úroda v batohu</h2>
+          <ul id="shop-bag" class="stock-list" aria-label="Úroda na predaj"></ul>
+          <button type="button" id="sell-bag" disabled>Predať úrodu z batoha</button>
+        </section>
+        <section id="pane-shop-upgrade" role="tabpanel" aria-labelledby="tab-shop-upgrade" hidden>
+          <div class="shop-upgrades">
+            <div><button type="button" id="buy-wheelbarrow" disabled>Fúrik</button><p class="inventory-help">Zväčší batoh všetkým hráčom na 12 kusov.</p></div>
+            <div><button type="button" id="open-east" disabled>Východné pole</button><p class="inventory-help">Sprístupní ďalších osem záhonov.</p></div>
+            <div><button type="button" id="expand-shop" disabled>Rozšíriť obchod</button><p class="inventory-help">Odomkne zemiaky, jahody a balenia po 10 kusov.</p></div>
+            <div><button type="button" id="open-south" disabled>Obnoviť južnú bránu</button><p class="inventory-help">Po odomknutí východného poľa a rozšírení obchodu pridá osem záhonov a tekvice.</p></div>
+          </div>
+        </section>
       </div>
     </aside>
 
@@ -77,7 +93,6 @@
       </div>
       <div class="panel-tabs" role="tablist" aria-label="Ponuka farmy">
         <button id="tab-bag" type="button" role="tab" aria-controls="pane-bag" aria-selected="true" tabindex="0">Zásoby</button>
-        <button id="tab-expansion" type="button" role="tab" aria-controls="pane-expansion" aria-selected="false" tabindex="-1">Brána</button>
         <button id="tab-invite" type="button" role="tab" aria-controls="pane-invite" aria-selected="false" tabindex="-1">Pozvánky</button>
       </div>
       <div class="panel-content">
@@ -92,14 +107,7 @@
           <button type="button" id="sell-stock" disabled>Predať úrodu</button>
         </div>
         <p class="inventory-help">Úrodu ulož alebo predaj pri dverách stodoly.</p>
-        <button type="button" id="buy-wheelbarrow" disabled>Vylepšiť fúrik</button>
-        <p class="inventory-help">Fúrik pri stodole zväčší inventár všetkým hráčom.</p>
         </div>
-      </section>
-      <section id="pane-expansion" role="tabpanel" aria-labelledby="tab-expansion" hidden>
-        <h2 id="expansion-heading" tabindex="-1">Južná brána</h2>
-        <button type="button" id="open-south" disabled>Obnoviť bránu</button>
-        <p class="inventory-help">Po rozšírení obchodu príď k bráne. Obnova pridá osem záhonov a tekvice do obchodu.</p>
       </section>
       <section id="pane-invite" role="tabpanel" aria-labelledby="tab-invite" hidden>
         <h2>Pozvi kamarátov</h2>

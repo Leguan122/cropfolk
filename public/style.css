@@ -185,3 +185,10 @@ button.hud-chip{pointer-events:auto}
 }
 
 .farm-panel.seed-picker{left:max(12px,env(safe-area-inset-left));right:auto;bottom:auto;width:min(285px,calc(100% - 24px));max-height:calc(100% - 145px);margin:0}
+
+#farm-panel .panel-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
+.shop-upgrades{display:grid;gap:14px}
+.shop-upgrades button,#sell-bag{margin:0}
+#sell-bag{margin-top:12px}
+.terrain.locked-field{background:#30432b99;border-radius:8px;border:2px dashed #e8d4a680}
+.terrain.locked-field span{top:50%;transform:translate(-50%,-50%)}

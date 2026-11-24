@@ -14,6 +14,7 @@ return [
     'height' => 1120,
     'closedHeight' => 756,
     'shopExpansionCost' => 65,
+    'eastFieldCost' => 45,
     'southGate' => ['x' => 576, 'y' => 714, 'reach' => 46, 'cost' => 110],
     'south' => [
         'plots' => array_map(fn ($index) => [

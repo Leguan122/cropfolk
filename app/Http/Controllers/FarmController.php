@@ -54,9 +54,11 @@ final class FarmController extends Controller
                             $this->updatePosition($code, $playerId, $body);
                         } elseif ($action === 'buy-seed') {
                             [$coins, $plots] = $this->buySeed($code, $playerId, $body, $position);
-                        } elseif ($action === 'expand-shop' || $action === 'open-south') {
+                        } elseif (in_array($action, ['expand-shop', 'open-east', 'open-south', 'buy-wheelbarrow'], true)) {
                             [$coins, $plots] = $this->expandFarm($code, $playerId, $action, $position);
-                        } elseif (in_array($action, ['deposit', 'sell', 'buy-wheelbarrow'], true)) {
+                        } elseif ($action === 'sell-bag') {
+                            [$coins, $plots] = $this->sellBag($code, $playerId, $position);
+                        } elseif (in_array($action, ['deposit', 'sell'], true)) {
                             [$coins, $plots] = $this->workBarn($code, $playerId, $action, $position);
                         } else {
                             [$coins, $plots] = $this->updateFarm($code, $playerId, $body, $position);
@@ -87,6 +89,7 @@ final class FarmController extends Controller
                 'wheelbarrow' => (bool) $upgrades->wheelbarrow,
                 'shopExpanded' => (bool) $upgrades->shop_expanded,
                 'southOpen' => (bool) $upgrades->south_open,
+                'eastOpen' => (bool) $upgrades->east_open,
                 'bag' => (object) $this->decodeContents($personal->contents ?? null),
                 'barn' => (object) $this->decodeContents($shared->contents ?? null),
                 'code' => $code, 'coins' => $coins, 'plots' => $plots, 'time' => $now, 'players' => $players,
@@ -114,7 +117,7 @@ final class FarmController extends Controller
 
     private function upgrades(string $code): object
     {
-        return DB::table('farms')->where('code', $code)->first(['wheelbarrow', 'shop_expanded', 'south_open']);
+        return DB::table('farms')->where('code', $code)->first(['wheelbarrow', 'shop_expanded', 'south_open', 'east_open']);
     }
 
     private function layout(object $upgrades): array
@@ -122,6 +125,13 @@ final class FarmController extends Controller
         $map = config('farm');
         $south = $map['south'];
         unset($map['south']);
+        $map['lockedPlots'] = $upgrades->east_open ? [] : range(8, 15);
+        if (!$upgrades->east_open) {
+            $map['obstacles'][] = [
+                'kind' => 'locked-field', 'x' => 651, 'y' => 144, 'w' => 393, 'h' => 285,
+                'text' => 'Východné pole · zamknuté',
+            ];
+        }
         $map['playableHeight'] = $upgrades->south_open ? $map['height'] : $map['closedHeight'];
         if ($upgrades->south_open) {
             $map['plots'] = [...$map['plots'], ...$south['plots']];
@@ -141,22 +151,25 @@ final class FarmController extends Controller
         [$coins, $plots] = $this->loadFarm($code, true);
         $upgrades = $this->upgrades($code);
         $map = config('farm');
-        $shop = $action === 'expand-shop';
-        $column = $shop ? 'shop_expanded' : 'south_open';
-        $target = $shop ? $map['shopDoor'] : $map['southGate'];
-        $cost = $shop ? $map['shopExpansionCost'] : $target['cost'];
-        $this->checkReach($code, $playerId, $target, $target['reach'], $shop ? 'obchodu' : 'južnej bráne', $position, $upgrades);
+        [$column, $cost] = match ($action) {
+            'expand-shop' => ['shop_expanded', $map['shopExpansionCost']],
+            'open-east' => ['east_open', $map['eastFieldCost']],
+            'open-south' => ['south_open', $map['southGate']['cost']],
+            'buy-wheelbarrow' => ['wheelbarrow', $map['wheelbarrow']['cost']],
+        };
+        $target = $map['shopDoor'];
+        $this->checkReach($code, $playerId, $target, $target['reach'], 'obchodu', $position, $upgrades);
         if ($upgrades->{$column}) {
             throw new HttpException(409, 'Toto vylepšenie už máte.');
         }
-        if (!$shop && !$upgrades->shop_expanded) {
-            throw new HttpException(409, 'Najprv rozšír obchod so semienkami.');
+        if ($action === 'open-south' && (!$upgrades->shop_expanded || !$upgrades->east_open)) {
+            throw new HttpException(409, 'Najprv rozšír obchod a odomkni východné pole.');
         }
         if ($coins < $cost) {
             throw new HttpException(409, 'Na vylepšenie zatiaľ nemáte dosť mincí.');
         }
         $coins -= $cost;
-        if (!$shop) {
+        if ($action === 'open-south') {
             $plots = [...$plots, ...array_fill(0, count($map['south']['plots']), null)];
         }
         DB::table('farms')->where('code', $code)->update([
@@ -173,6 +186,9 @@ final class FarmController extends Controller
         }
         $upgrades = $this->upgrades($code);
         $map = $this->layout($upgrades);
+        if (in_array($index, $map['lockedPlots'], true)) {
+            throw new HttpException(409, 'Toto pole odomkneš v obchode.');
+        }
         $this->checkReach($code, $playerId, $map['plots'][$index], $map['reach'], 'záhonu', $position, $upgrades);
 
         $plant = $plots[$index];
@@ -283,27 +299,30 @@ final class FarmController extends Controller
         return [$coins, $plots];
     }
 
+    private function sellBag(string $code, string $playerId, ?array $position): array
+    {
+        [$coins, $plots] = $this->loadFarm($code, true);
+        $door = config('farm.shopDoor');
+        $this->checkReach($code, $playerId, $door, $door['reach'], 'obchodu', $position);
+        $bag = $this->inventory($code, $playerId);
+        if (!$bag) {
+            throw new HttpException(409, 'V inventári nemáš úrodu.');
+        }
+        foreach ($bag as $crop => $count) {
+            $coins += self::CROPS[$crop][1] * $count;
+        }
+        DB::table('farms')->where('code', $code)->update(['coins' => $coins]);
+        $this->saveInventory($code, $playerId, []);
+
+        return [$coins, $plots];
+    }
+
     private function workBarn(string $code, string $playerId, string $action, ?array $position): array
     {
         // Use the same farm lock as harvesting so every crop can be transferred or sold once.
         [$coins, $plots] = $this->loadFarm($code, true);
         $door = config('farm.barnDoor');
         $this->checkReach($code, $playerId, $door, $door['reach'], 'dverám stodoly', $position);
-        if ($action === 'buy-wheelbarrow') {
-            $farm = DB::table('farms')->where('code', $code);
-            if ($farm->value('wheelbarrow')) {
-                throw new HttpException(409, 'Fúrik už máte.');
-            }
-            $cost = config('farm.wheelbarrow.cost');
-            if ($coins < $cost) {
-                throw new HttpException(409, 'Na fúrik zatiaľ nemáte dosť mincí.');
-            }
-            $coins -= $cost;
-            $farm->update(['coins' => $coins, 'wheelbarrow' => true]);
-
-            return [$coins, $plots];
-        }
-
         $stock = $this->inventory($code, self::BARN);
         if ($action === 'deposit') {
             $bag = $this->inventory($code, $playerId);

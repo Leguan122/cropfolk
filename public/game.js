@@ -40,11 +40,13 @@ const panelToggle = $('panel-toggle');
 let panelOpener = null;
 const sellButton = $('sell-stock');
 const depositButton = $('deposit-stock');
-const panelTabs = [...panel.querySelectorAll('[role=tab]')];
+const tabLists = [...document.querySelectorAll('.panel-tabs')];
 const wheelbarrowButton = $('buy-wheelbarrow');
 const shopButtons = [];
 const shopExpansion = $('expand-shop');
 const southExpansion = $('open-south');
+const eastExpansion = $('open-east');
+const sellBagButton = $('sell-bag');
 const workButton = $('work-plot');
 let nearestPlot = -1;
 let pendingPlot = null;
@@ -144,6 +146,7 @@ function renderMap(map) {
   while (plots.children.length > map.plots.length) plots.lastElementChild.remove();
   map.plots.forEach(({x, y}, index) => {
     const plot = plots.children[index] ?? addPlot(index);
+    plot.hidden = map.lockedPlots.includes(index);
     plot.style.left = x + 'px';
     plot.style.top = y + 'px';
   });
@@ -196,15 +199,15 @@ function closePanel(restoreFocus = true) {
   panelOpener = null;
 }
 
-function selectPanelTab(id, focus = true) {
-  for (const tab of panelTabs) {
-    const active = tab.id === 'tab-' + id;
+function selectPanelTab(selectedTab) {
+  for (const tab of selectedTab.parentElement.querySelectorAll('[role=tab]')) {
+    const active = tab === selectedTab;
     tab.setAttribute('aria-selected', String(active));
     tab.tabIndex = active ? 0 : -1;
     $(tab.getAttribute('aria-controls')).hidden = !active;
-    if (active && focus) tab.focus();
   }
-  panel.querySelector('.panel-content').scrollTop = 0;
+  selectedTab.focus();
+  selectedTab.closest('aside').querySelector('.panel-content').scrollTop = 0;
 }
 
 function openPanel(opener, tab, toggle = false) {
@@ -216,23 +219,26 @@ function openPanel(opener, tab, toggle = false) {
   panelOpener = opener;
   panel.hidden = false;
   panelToggle.setAttribute('aria-expanded', 'true');
-  selectPanelTab(tab);
+  selectPanelTab($('tab-' + tab));
 }
 
-for (const [index, tab] of panelTabs.entries()) {
-  tab.onclick = () => selectPanelTab(tab.id.slice(4));
-  tab.onkeydown = event => {
-    const destinations = {
-      ArrowLeft: (index + panelTabs.length - 1) % panelTabs.length,
-      ArrowRight: (index + 1) % panelTabs.length,
-      Home: 0,
-      End: panelTabs.length - 1,
+for (const list of tabLists) {
+  const tabs = [...list.querySelectorAll('[role=tab]')];
+  for (const [index, tab] of tabs.entries()) {
+    tab.onclick = () => selectPanelTab(tab);
+    tab.onkeydown = event => {
+      const destinations = {
+        ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        ArrowRight: (index + 1) % tabs.length,
+        Home: 0,
+        End: tabs.length - 1,
+      };
+      if (!(event.key in destinations)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectPanelTab(tabs[destinations[event.key]]);
     };
-    if (!(event.key in destinations)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    selectPanelTab(panelTabs[destinations[event.key]].id.slice(4));
-  };
+  }
 }
 seedToggle.onclick = () => {
   const wasOpen = !seedPicker.hidden;
@@ -299,7 +305,7 @@ function message(value = '') {
 }
 
 function record(data) {
-  if (!farm || farm.southOpen !== data.southOpen) renderMap(data.layout);
+  if (!farm || farm.southOpen !== data.southOpen || farm.eastOpen !== data.eastOpen) renderMap(data.layout);
   if (crops[selected].upgrade && !data[crops[selected].upgrade]) {
     selected = 'radish';
     updateSeedSelection();
@@ -343,6 +349,10 @@ function total(contents) {
   return Object.values(contents).reduce((sum, count) => sum + count, 0);
 }
 
+function stockValue(contents) {
+  return Object.entries(contents).reduce((sum, [id, count]) => sum + crops[id].reward * count, 0);
+}
+
 function atBarn() {
   const {barnDoor} = farm.layout;
   return mapDistance(barnDoor) <= barnDoor.reach;
@@ -353,21 +363,14 @@ function atShop() {
   return mapDistance(shopDoor) <= shopDoor.reach;
 }
 
-function atSouthGate() {
-  const {southGate} = farm.layout;
-  return !farm.southOpen && mapDistance(southGate) <= southGate.reach;
-}
-
 function interact() {
-  if (atSouthGate()) {
-    openPanel(workButton, 'expansion');
-  } else if (atShop()) {
+  if (atShop()) {
     if (!shopPanel.hidden) return;
     closePanel(false);
     panelOpener = workButton;
     shopPanel.hidden = false;
     workButton.setAttribute('aria-expanded', 'true');
-    $('shop-heading').focus();
+    selectPanelTab($('tab-shop-buy'));
   } else if (atBarn()) {
     if (total(farm.bag)) workBarn('deposit');
     else if (total(farm.barn)) workBarn('sell');
@@ -381,6 +384,7 @@ function updateTarget() {
   let target = -1;
   let closest = farm.layout.reach;
   for (let index = 0; index < farm.plots.length; index++) {
+    if (farm.layout.lockedPlots.includes(index)) continue;
     const distance = mapDistance(farm.layout.plots[index]);
     if (distance <= closest) {
       target = index;
@@ -398,18 +402,17 @@ function updateTarget() {
   const nearBarn = atBarn();
   const nearShop = atShop();
   if (!nearShop && !shopPanel.hidden) closePanel();
-  const nearGate = atSouthGate();
   const noSeeds = !plant && !farm.seeds[selected];
   const hasBag = total(farm.bag) > 0;
   const hasStock = total(farm.barn) > 0;
-  const value = Object.entries(farm.barn).reduce((sum, [id, count]) => sum + crops[id].reward * count, 0);
-  const label = pendingPlot ? pendingPlot.label : nearGate ? 'E · Južná brána' : nearShop ? 'E · Otvoriť obchod' : nearBarn
+  const value = stockValue(farm.barn);
+  const label = pendingPlot ? pendingPlot.label : nearShop ? 'E · Otvoriť obchod' : nearBarn
     ? (hasBag ? 'E · Uložiť úrodu' : hasStock ? 'E · Predať úrodu za ' + value + ' 🪙' : 'Stodola je prázdna')
     : target < 0 ? 'Pristúp k záhonu, stodole alebo obchodu' : growing
       ? crops[plant.crop].name + ' dozrieva'
       : noSeeds ? 'Semienka kúpiš v obchode' : 'E · ' + (plant ? 'Zožať' : 'Zasadiť (' + crops[selected].name + ')');
   if (workButton.textContent !== label) workButton.textContent = label;
-  workButton.disabled = busy || (!nearGate && !nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
+  workButton.disabled = busy || (!nearShop && (nearBarn ? !hasBag && !hasStock : target < 0 || growing || noSeeds));
   depositButton.disabled = busy || !nearBarn || !hasBag;
   sellButton.disabled = busy || !nearBarn || !hasStock;
   const sellLabel = hasStock ? 'Predať za ' + value + ' 🪙' : 'Predať úrodu';
@@ -417,7 +420,7 @@ function updateTarget() {
   const wheelbarrowLabel = farm.wheelbarrow ? 'Fúrik zakúpený'
     : 'Kúpiť fúrik za ' + farm.layout.wheelbarrow.cost + ' 🪙';
   if (wheelbarrowButton.textContent !== wheelbarrowLabel) wheelbarrowButton.textContent = wheelbarrowLabel;
-  wheelbarrowButton.disabled = busy || !nearBarn || farm.wheelbarrow || farm.coins < farm.layout.wheelbarrow.cost;
+  wheelbarrowButton.disabled = busy || !nearShop || farm.wheelbarrow || farm.coins < farm.layout.wheelbarrow.cost;
   for (const {button, cost, quantity} of shopButtons) {
     button.hidden = quantity === 10 && !farm.shopExpanded;
     button.disabled = busy || !nearShop || farm.coins < cost;
@@ -427,8 +430,14 @@ function updateTarget() {
   if (shopExpansion.textContent !== shopLabel) shopExpansion.textContent = shopLabel;
   if (southExpansion.textContent !== southLabel) southExpansion.textContent = southLabel;
   shopExpansion.disabled = busy || !nearShop || farm.shopExpanded || farm.coins < farm.layout.shopExpansionCost;
-  southExpansion.disabled = busy || !nearGate || !farm.shopExpanded || farm.coins < farm.layout.southGate.cost;
-  $('terrain').querySelector('.gate-entrance').classList.toggle('in-reach', nearGate);
+  southExpansion.disabled = busy || !nearShop || !farm.shopExpanded || !farm.eastOpen || farm.southOpen || farm.coins < farm.layout.southGate.cost;
+  const eastLabel = farm.eastOpen ? 'Východné pole otvorené' : 'Odomknúť východné pole za ' + farm.layout.eastFieldCost + ' 🪙';
+  if (eastExpansion.textContent !== eastLabel) eastExpansion.textContent = eastLabel;
+  eastExpansion.disabled = busy || !nearShop || farm.eastOpen || farm.coins < farm.layout.eastFieldCost;
+  const bagValue = stockValue(farm.bag);
+  const bagLabel = bagValue ? 'Predať úrodu za ' + bagValue + ' 🪙' : 'Predať úrodu z batoha';
+  if (sellBagButton.textContent !== bagLabel) sellBagButton.textContent = bagLabel;
+  sellBagButton.disabled = busy || !nearShop || !hasBag;
   $('terrain').querySelector('.barn-entrance').classList.toggle('in-reach', nearBarn);
   $('terrain').querySelector('.shop-entrance').classList.toggle('in-reach', nearShop);
 }
@@ -489,7 +498,6 @@ function workBarn(action) {
       const notices = {
         deposit: 'Úroda je v spoločnej stodole.',
         sell: 'Úroda je predaná. Mince pribudli do pokladnice.',
-        'buy-wheelbarrow': 'Fúrik je váš. Každý hráč teraz unesie 12 kusov úrody.',
       };
       message(notices[action]);
     }
@@ -499,14 +507,21 @@ function workBarn(action) {
 workButton.onclick = interact;
 depositButton.onclick = () => workBarn('deposit');
 sellButton.onclick = () => workBarn('sell');
-wheelbarrowButton.onclick = () => workBarn('buy-wheelbarrow');
+
 
 function buyExpansion(action, notice) {
   return run(async () => {
+    if (!atShop()) {
+      message('Najprv pristúp k obchodu.');
+      return;
+    }
     if (await actAtPosition({action})) message(notice);
   });
 }
 
+wheelbarrowButton.onclick = () => buyExpansion('buy-wheelbarrow', 'Fúrik je váš. Každý hráč teraz unesie 12 kusov úrody.');
+eastExpansion.onclick = () => buyExpansion('open-east', 'Východné pole je otvorené.');
+sellBagButton.onclick = () => buyExpansion('sell-bag', 'Úroda z batoha je predaná. Mince pribudli do pokladnice.');
 shopExpansion.onclick = () => buyExpansion('expand-shop', 'Obchod teraz predáva zemiaky, jahody a balenia po 10 kusov.');
 southExpansion.onclick = () => buyExpansion('open-south', 'Južné pole je otvorené. V obchode kúpiš tekvice.');
 
@@ -567,6 +582,11 @@ function renderInventory() {
   empty.className = 'stock-empty';
   empty.textContent = 'Stodola je prázdna.';
   $('stock-items').replaceChildren(...(stock.length ? stock.map(id => cargoItem(id, farm.barn[id])) : [empty]));
+  const bagEmpty = document.createElement('li');
+  bagEmpty.className = 'stock-empty';
+  bagEmpty.textContent = 'Batoh je prázdny.';
+  const bagRows = Object.keys(crops).filter(id => farm.bag[id]).map(id => cargoItem(id, farm.bag[id]));
+  $('shop-bag').replaceChildren(...(bagRows.length ? bagRows : [bagEmpty]));
 }
 
 function render() {
